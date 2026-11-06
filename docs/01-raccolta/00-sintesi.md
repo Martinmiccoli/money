@@ -41,3 +41,9 @@ Rapporti di dettaglio:
 2. **Crypto: ETP nel live** (regime amministrato al 26%). Le crypto dirette restano **solo in paper**, come laboratorio per i segnali di sentiment.
 3. **Frequenza:** la sceglie il backtest (giornaliera, settimanale o mensile), confrontando lo Sharpe al netto di costi e tasse.
 4. **Azioni italiane: escluse dal live iniziale.** Il focus è su USA ed ETF UCITS.
+
+## 5. Aggiornamenti dalla verifica della Fase 3 ([approfondimenti](approfondimenti-fase3.md))
+- Trade Republic: le frazioni si comprano **solo con ordini a mercato** e stop o limiti sono possibili **solo su quote intere**. Piano di accumulo da 10 €. Esecuzione "Best Price" a 1 € dal 02/07/2026.
+- Trade Republic: le **crypto dirette sono in regime amministrato** (verificato). Il motivo burocratico per escluderle cade: resta la differenza di aliquota (33% contro 26% degli ETP) e lo spread di circa 0,5%. Decisione attuale invariata (ETP nel live); si può rivedere.
+- Alpaca paper e dati Basic sono accessibili a chiunque nel mondo con la sola email (verificato).
+- I prezzi degli ETF UCITS non hanno una fonte gratuita pulita: nel backtest si usano proxy USA convertiti in EUR.

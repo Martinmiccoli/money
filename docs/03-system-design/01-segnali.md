@@ -117,5 +117,8 @@ Output: **moltiplicatore di esposizione** degli sleeve tattici ∈ {1, 0,5, 0,25
 
 ## Problemi aperti (da chiudere in sviluppo)
 1. **Prezzi dei titoli delistati** per S1 (survivorship bias): verificare se Alpaca li fornisce; in alternativa stimare il bias.
-2. **Prezzi storici degli ETF UCITS:** vedi [approfondimenti](../01-raccolta/approfondimenti-fase3.md). Se non c'è una fonte gratuita pulita, in ricerca si usano gli ETF USA equivalenti convertiti in EUR con il cambio BCE, misurando l'errore di tracking.
+2. **Prezzi storici degli ETF UCITS: non esiste una fonte gratuita con ToS puliti** ([approfondimenti](../01-raccolta/approfondimenti-fase3.md)). Decisione:
+   - nel backtest si usano gli **ETF USA equivalenti** (Alpaca, total return) convertiti in EUR con il cambio BCE. Errore misurato sul proxy di CSPX: circa 0,34% al giorno, senza accumulo;
+   - LS-TC (endpoint JSON non documentato) si usa solo per **controlli a campione manuali**, senza salvarlo nel DB, come previsto dal suo disclaimer;
+   - il prezzo corrente per la proposta è un **prezzo indicativo** calcolato da proxy + cambio. L'utente lo confronta comunque con l'app prima del tap.
 3. **Mappatura CUSIP/ticker/ISIN** tra SEC, Alpaca e Trade Republic (OpenFIGI, gratuito).

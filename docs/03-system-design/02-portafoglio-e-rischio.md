@@ -3,7 +3,7 @@
 ## Struttura core / satellite
 | Parte | Contenuto | Esecuzione | Quota iniziale (da ottimizzare in backtest) |
 |---|---|---|---|
-| **Core** | ETF UCITS azionario globale (benchmark) | **Piano di accumulo** su Trade Republic: 0 € di commissioni, automatico, nessun tap | 60% |
+| **Core** | ETF UCITS azionario globale (benchmark) | **Piano di accumulo** su Trade Republic: 0 € di commissioni, minimo 10 € per esecuzione, automatico, nessun tap | 60% |
 | **Satellite ETF** | S3 trend + S4 rotazione + S5 fattori | Ribilanciamento mensile: proposte (hybrid) o API (live) | 30% |
 | **Satellite azioni** | S1 insider (+ S2 best ideas) | Proposte puntuali | 10% |
 
@@ -43,7 +43,7 @@ Altrimenti la posizione resta com'è. Per i satellite ETF si applica anche l'ist
 |---|---|
 | Core | Nessuno stop: orizzonte lungo; il rischio lo gestisce G-01/G-02 a livello di conto |
 | Satellite ETF | Uscita data dal segnale (trend negativo al ribilanciamento). Nessuno stop intramensile |
-| Satellite azioni (S1) | **Stop-loss sul broker** a `prezzo_ingresso − 3 × ATR(20)`, comunicato nella proposta e impostato su Trade Republic. Uscita a fine orizzonte |
+| Satellite azioni (S1) | Stop a `prezzo_ingresso − 3 × ATR(20)`. **Sul broker solo se la posizione è in quote intere** (Trade Republic non ammette stop sulle frazioni); altrimenti stop monitorato dal sistema con notifica urgente ([3.5](05-esecuzione-hybrid.md)). Uscita a fine orizzonte |
 
 ## Guardrails di conto (già implementati in `money-core`)
 - **G-01 soft stop a −15%** dal massimo: niente nuovi acquisti; serve la ripartenza esplicita dell'utente.
