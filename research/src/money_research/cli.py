@@ -9,6 +9,7 @@ money ingest all               tutto quanto sopra (incluse migrazioni e universo
 money status                   copertura dei dati e ultime esecuzioni
 money chart [id ...]           grafico dei prezzi in EUR (base 100) in reports/charts/
 money backtest benchmark       report del benchmark (piano di accumulo) in reports/validation/
+money backtest m4              strategie ETF S3/S4/S8: griglia a priori, registro G-12, report
 """
 
 from __future__ import annotations
@@ -168,6 +169,15 @@ def cmd_backtest_benchmark(args) -> None:
     print(f"sha256: {sha}")
 
 
+def cmd_backtest_m4(args) -> None:
+    from .backtest.run import m4_report
+
+    with _conn() as c:
+        path, sha = m4_report(c)
+    print(f"report: {path}")
+    print(f"sha256: {sha}")
+
+
 def main(argv: list[str] | None = None) -> None:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     p = argparse.ArgumentParser(prog="money", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -189,6 +199,7 @@ def main(argv: list[str] | None = None) -> None:
     ch.set_defaults(fn=cmd_chart)
     bt = sub.add_parser("backtest").add_subparsers(dest="sub", required=True)
     bt.add_parser("benchmark").set_defaults(fn=cmd_backtest_benchmark)
+    bt.add_parser("m4").set_defaults(fn=cmd_backtest_m4)
 
     args = p.parse_args(argv)
     try:

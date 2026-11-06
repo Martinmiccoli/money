@@ -193,6 +193,8 @@ fn round_tax(v: Decimal) -> Decimal {
 pub enum OperationKind {
     Sale,
     Dividend,
+    /// Interessi sulla liquidità: redditi di capitale al 26%, senza compensazione.
+    Interest,
 }
 
 /// Utilizzo dello zainetto in un'operazione.
@@ -260,6 +262,8 @@ pub struct TaxReport {
     pub rules_verified_on: NaiveDate,
     pub sales: BTreeMap<TaxCategory, CategorySummary>,
     pub dividends: DividendSummary,
+    /// Interessi sulla liquidità (lordo = imponibile).
+    pub interest: DividendSummary,
     pub tax_estimated_eur: Decimal,
     /// Somma degli eventi `TaxWithheld` dell'anno (trattenute meno restituzioni).
     pub tax_withheld_by_broker_eur: Decimal,
@@ -405,6 +409,27 @@ impl TaxEngine {
             self.operations.push(op);
         }
 
+        if let Event::Interest { amount_eur } = &r.event {
+            let rate = rules.rate_pct(Basket::Ordinary, r.date)?;
+            let taxable = round_cents(*amount_eur);
+            self.operations.push(TaxOperation {
+                seq: r.seq,
+                date: r.date,
+                trade_date: r.date,
+                instrument: "liquidità".to_string(),
+                category: TaxCategory::RC,
+                kind: OperationKind::Interest,
+                income_eur: taxable,
+                losses_used: Vec::new(),
+                taxable_eur: taxable,
+                rate_pct: rate,
+                tax_eur: round_tax(taxable * rate / dec!(100)),
+                loss_added_eur: Decimal::ZERO,
+                white_list_pct: None,
+                notes: Vec::new(),
+            });
+        }
+
         if let Event::Dividend {
             instrument,
             gross_eur,
@@ -473,6 +498,7 @@ pub fn report(
 
     let mut sales: BTreeMap<TaxCategory, CategorySummary> = BTreeMap::new();
     let mut dividends = DividendSummary::default();
+    let mut interest = DividendSummary::default();
     let operations: Vec<TaxOperation> = engine
         .operations
         .iter()
@@ -496,6 +522,10 @@ pub fn report(
                 dividends.taxable_eur += o.taxable_eur;
                 dividends.tax_eur += o.tax_eur;
             }
+            OperationKind::Interest => {
+                interest.taxable_eur += o.taxable_eur;
+                interest.tax_eur += o.tax_eur;
+            }
         }
     }
     for r in records.iter().filter(|r| r.date.year() == year) {
@@ -511,7 +541,7 @@ pub fn report(
     }
 
     let tax_estimated: Decimal =
-        sales.values().map(|s| s.tax_eur).sum::<Decimal>() + dividends.tax_eur;
+        sales.values().map(|s| s.tax_eur).sum::<Decimal>() + dividends.tax_eur + interest.tax_eur;
     let zainetto = engine.zainetto_at(rules, year_end);
     let expiring: Decimal = zainetto
         .iter()
@@ -560,6 +590,7 @@ pub fn report(
         rules_verified_on: rules.verified_on,
         sales,
         dividends,
+        interest,
         tax_estimated_eur: tax_estimated,
         tax_withheld_by_broker_eur: withheld,
         difference_eur: difference,

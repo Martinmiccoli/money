@@ -16,6 +16,15 @@ resume_after_days = 20
 # Il benchmark è fissato a priori: ETF UCITS azionario globale ad accumulo, con piano di accumulo.
 benchmark_instrument = "all_world"
 
+# Strumenti con copertura valutaria: il proxy USA (coperto in USD) NON si converte con il cambio,
+# perché l'ETF reale è coperto in EUR. Il costo della copertura è nel drag qui sopra.
+fx_hedged = ["global_bonds_hedged"]
+
+# Interessi sulla liquidità del conto Trade Republic: tasso €STR se positivo (prima del 2022 era
+# negativo e il broker non pagava nulla), accreditati a fine mese, tassati al 26%.
+# ⚠️ Approssimazione: TR paga un tasso legato al tasso sui depositi BCE (~€STR + 0,1).
+cash_interest = true
+
 # Il proxy USA rende più dell'ETF UCITS reale: dividendi USA lordi reinvestiti (l'UCITS irlandese
 # subisce il 15% di ritenuta su un rendimento da dividendi ~1,8% => ~0,27%/anno) e TER più basso
 # (VT 0,06% contro VWCE 0,19%). Si sottrae un costo annuo stimato, così il backtest non è ottimista.
@@ -24,7 +33,15 @@ benchmark_instrument = "all_world"
 all_world = 40
 world_equity = 40
 us_equity = 30
-default = 30
+# M4 (aggiunti prima di qualsiasi backtest sulle strategie):
+em_equity = 40                 # EEM TER 0,70% vs EIMI 0,18%, ma ritenute più alte: a somma ~0
+gold = 0                       # GLD 0,40% vs ETC fisico ~0,12-0,25%: il proxy è già prudente
+global_bonds_hedged = 160      # coperto in USD invece che in EUR: differenziale medio dei tassi a breve
+                               # USD−EUR 2016-2024 ~1,5-2%/anno (stima; vedi fx_hedged sotto)
+commodities = 30
+bitcoin_etp = 20               # TER degli ETP fisici 0,15-0,25%
+ethereum_etp = 20
+default = 40                   # settori e fattori: ritenuta 15% sui dividendi USA + TER UCITS più alto
 
 # Rendimento atteso dichiarato per il piano di accumulo (G-06 lo richiede per ogni acquisto).
 # Premio al rischio azionario di lungo periodo: è un'ipotesi, non una previsione.

@@ -79,6 +79,11 @@ pub enum Event {
     StampDuty {
         amount_eur: Decimal,
     },
+    /// Interessi lordi sulla liquidità (redditi di capitale: il broker trattiene il 26% con un
+    /// evento `TaxWithheld` separato).
+    Interest {
+        amount_eur: Decimal,
+    },
     RiskStateChanged {
         from: String,
         to: String,
@@ -106,6 +111,7 @@ impl Event {
             Event::Dividend { .. } => "Dividend",
             Event::TaxWithheld { .. } => "TaxWithheld",
             Event::StampDuty { .. } => "StampDuty",
+            Event::Interest { .. } => "Interest",
             Event::RiskStateChanged { .. } => "RiskStateChanged",
             Event::ConfigChanged { .. } => "ConfigChanged",
             Event::Reconciliation { .. } => "Reconciliation",

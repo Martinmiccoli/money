@@ -207,6 +207,11 @@ impl Portfolio {
                 self.cash_eur -= amount_eur;
                 Ok(None)
             }
+            Event::Interest { amount_eur } => {
+                positive(*amount_eur, "amount_eur")?;
+                self.cash_eur += amount_eur;
+                Ok(None)
+            }
             Event::RiskStateChanged { .. }
             | Event::ConfigChanged { .. }
             | Event::Reconciliation { .. } => Ok(None),

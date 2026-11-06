@@ -181,3 +181,156 @@ def write(
     text = "\n".join(L)
     path.write_text(text)
     return hashlib.sha256(text.encode()).hexdigest()
+
+
+# ═════════════════════════ report di ricerca (M4) ═════════════════════════
+
+FAMILY_TITLES = {
+    "s3-tsmom": "S3 — Trend following multi-asset (TSMOM)",
+    "s4-rotation": "S4 — Rotazione momentum sui settori",
+    "s3s4-s8": "S3 + S4 con il regime S8",
+}
+
+ASSUMPTIONS_M4 = [
+    "Periodo di ricerca dal primo giorno di borsa del 2017 (il 2016 serve come storia per i segnali a 12 mesi) "
+    "fino all'inizio dell'hold-out, che resta intatto. Benchmark sullo stesso periodo.",
+    "Proxy USA rettificati in EUR con drag annuo stimato; obbligazioni globali trattate come coperte in EUR "
+    "(nessuna conversione) con 160 bp/anno di costo di copertura stimato (`config/validation.toml`).",
+    "Decisione alle 9:00 con i soli dati pubblicati (G-11); controllo dei guardrails con il prezzo noto alla "
+    "decisione; esecuzione all'apertura con metà spread e 1 € di commissione (ordini normali).",
+    "`expected_edge_pct` (G-06): rendimento medio realizzato a 63 giorni per livello di segnale, stimato solo "
+    "sul passato e **dimezzato**. Finché ci sono meno di 24 osservazioni la strategia non compra.",
+    "Banda di non-trading 50 € (G-05 con 1 € di commissione), cuscinetto di liquidità 1%, massimo 3 ordini al "
+    "giorno (G-07); i pesi si inseguono per 5 giorni di borsa dopo il ribilanciamento.",
+    "Interessi sulla liquidità al tasso €STR quando positivo, tassati al 26%; bollo 0,2% annuo; imposte al "
+    "realizzo trattenute come farebbe il broker; liquidazione finale inclusa nel CAGR netto.",
+]
+
+
+def _codes(run: Run, top: int = 3) -> str:
+    c = Counter(code for x in run.result.rejections for code in x["codes"])
+    return ", ".join(f"{k}×{v}" for k, v in c.most_common(top)) or "—"
+
+
+def _best(runs: list[Run], capital) -> Run:
+    rs = [r for r in runs if r.extra["capital"] == capital]
+    return max(rs, key=lambda r: r.metrics["sharpe"] if math.isfinite(r.metrics["sharpe"]) else -9)
+
+
+def _chart_research(families: dict[str, list[Run]], benchmark: dict, path: Path, capitals) -> None:
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    fig, axes = plt.subplots(1, len(capitals), figsize=(6.5 * len(capitals), 5))
+    for ax, cap in zip(axes, capitals, strict=True):
+        b = benchmark[cap].metrics["_returns"]
+        ax.plot(b.index, (1 + b).cumprod() * 100, color="black", lw=1.5, label="benchmark (PAC)")
+        for fam, runs in families.items():
+            best = _best(runs, cap)
+            r = best.metrics["_returns"]
+            ax.plot(r.index, (1 + r).cumprod() * 100, label=f"{fam}: {best.label}")
+        ax.set_title(f"Capitale {num(float(cap), 0)} € — base 100, netto (liquidazione inclusa)")
+        ax.grid(alpha=0.3)
+        ax.legend(fontsize=7)
+    fig.tight_layout()
+    fig.savefig(path, dpi=110)
+    plt.close(fig)
+
+
+def write_research(path: Path, *, families: dict[str, list[Run]], benchmark: dict, context: dict) -> str:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    capitals = list(benchmark)
+    main_cap, diag_cap = capitals[0], capitals[1]
+    png = path.with_suffix(".png")
+    _chart_research(families, benchmark, png, capitals[:2])
+
+    L = ["# M4 — Strategie su ETF: trend (S3), rotazione (S4), regime (S8)", ""]
+    L += [f"- **Generato il:** {date.today()} · **codice:** `{context['code_version']}`"]
+    L += [f"- **Periodo:** {context['period'][0]} → {context['period'][1]} (periodo di ricerca, in-sample)"]
+    L += [f"- **Hold-out:** {context['holdout']} · **dati:** `{context['data_snapshot']}`"]
+    L += ["", f"> {DISCLAIMER}", ""]
+
+    # ── In breve (generato dai numeri) ──
+    L += ["## In breve", ""]
+    for cap in capitals:
+        b = benchmark[cap].metrics
+        L.append(
+            f"- **{num(float(cap), 0)} €** — benchmark: CAGR netto {pct(b['cagr'])}, Sharpe {num(b['sharpe'])}, "
+            f"drawdown {pct(b['max_drawdown'])}."
+        )
+        for fam, runs in families.items():
+            best = _best(runs, cap)
+            m = best.metrics
+            beats = "batte" if m["excess_cagr"] > 0 else "**non batte**"
+            L.append(
+                f"  - {FAMILY_TITLES[fam]} (migliore: {best.label}): CAGR {pct(m['cagr'])}, Sharpe {num(m['sharpe'])}, "
+                f"drawdown {pct(m['max_drawdown'])}, {m['n_trades']} ordini — {beats} il benchmark "
+                f"({pct(m['excess_cagr'])}/anno)."
+            )
+    passed = [
+        (fam, r.label, r.extra["capital"])
+        for fam, runs in families.items()
+        for r in runs
+        if all(ok(r.metrics.get(k)) for _, k, ok, _ in GATE0 if r.metrics.get(k) is not None)
+        and (r.metrics.get("pbo") is None or r.metrics["pbo"] < 0.5)
+    ]
+    L.append(
+        "- **Gate 0 (in-sample):** "
+        + (
+            "nessuna variante supera tutte le soglie."
+            if not passed
+            else "superano le soglie: " + "; ".join(f"{f} {lbl} ({c} €)" for f, lbl, c in passed)
+        )
+    )
+    L += ["", f"![grafico]({png.name})", ""]
+
+    # ── Tabelle per famiglia ──
+    for fam, runs in families.items():
+        L += [f"## {FAMILY_TITLES[fam]}", ""]
+        L += [
+            "| Variante | Capitale | Liquidato | CAGR netto | vs benchmark | Sharpe | Max DD | Ordini "
+            "| Rifiuti principali | Interessi | DSR | PBO |",
+            "|---|---|---|---|---|---|---|---|---|---|---|---|",
+        ]
+        for cap in capitals:
+            for r in [x for x in runs if x.extra["capital"] == cap]:
+                m = r.metrics
+                L.append(
+                    f"| {r.label} | {num(float(cap), 0)} € | {eur(r.result.liquidation['value_eur'])} | "
+                    f"{pct(m['cagr'])} | {pct(m['excess_cagr'])} | {num(m['sharpe'])} | {pct(m['max_drawdown'])} | "
+                    f"{m['n_trades']} | {_codes(r)} | {eur(r.result.totals['interest'])} | {pct(m['dsr'])} | "
+                    f"{num(m['pbo']) if m.get('pbo') is not None else 'n/d'} |"
+                )
+        L.append("")
+
+    # ── Gate 0 per la migliore variante di ogni famiglia al capitale principale ──
+    L += [f"## Gate 0 in-sample — migliore variante per famiglia ({num(float(main_cap), 0)} €)", ""]
+    L += ["Indicativo: il Gate 0 vero si misura **una volta sola** sull'hold-out.", ""]
+    for fam, runs in families.items():
+        best = _best(runs, main_cap)
+        L += [f"**{FAMILY_TITLES[fam]} — {best.label}**", "", "| Metrica | Soglia | Valore | Esito |"]
+        L += ["|---|---|---|---|"] + gate0_rows(best.metrics)[:-1]
+        pbo_v = best.metrics.get("pbo")
+        L.append(
+            f"| PBO | < 0,5 | {num(pbo_v) if pbo_v is not None else 'n/d'} | "
+            f"{'—' if pbo_v is None else ('✅' if pbo_v < 0.5 else '❌')} |"
+        )
+        L.append("")
+
+    L += [f"## Diagnostica a {num(float(diag_cap), 0)} €", ""]
+    L += [
+        "Con più capitale gli ordini sono più grandi, le commissioni fisse pesano meno e G-05/G-06 bloccano meno: "
+        "questa colonna dice se la **strategia in sé** ha valore, al netto del vincolo dei 50 €.",
+        "",
+    ]
+    L += ["## Ipotesi del modello", ""] + [f"- {a}" for a in ASSUMPTIONS_M4]
+    L += ["", "## Registro dei tentativi (G-12)", ""]
+    all_runs = [*benchmark.values(), *[r for runs in families.values() for r in runs]]
+    for r in sorted(all_runs, key=lambda r: r.experiment_id or 0):
+        L.append(f"- #{r.experiment_id} {r.extra.get('family', 'benchmark')}: {r.label}, {r.extra['capital']} €")
+    L += ["", "---", "", DISCLAIMER, ""]
+    text = "\n".join(L)
+    path.write_text(text)
+    return hashlib.sha256(text.encode()).hexdigest()

@@ -90,6 +90,17 @@ impl Ledger {
         self.inner.account().to_string()
     }
 
+    /// Imposta che il broker tratterrebbe sull'ultimo record, senza serializzare il ledger.
+    fn tax_due_for_last(&self, instruments_json: &str, rules: &TaxRules) -> PyResult<String> {
+        tax::tax_due_for_last(
+            self.inner.records(),
+            &rules.inner,
+            &instruments(instruments_json)?,
+        )
+        .map(|d| d.to_string())
+        .map_err(err)
+    }
+
     fn __len__(&self) -> usize {
         self.inner.records().len()
     }

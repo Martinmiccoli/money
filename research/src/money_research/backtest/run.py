@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import tomllib
+from collections.abc import Callable
 from dataclasses import asdict
 from datetime import date, time
 from decimal import Decimal
@@ -166,3 +167,157 @@ def benchmark_report(conn: psycopg.Connection, out_dir: Path | None = None) -> t
 
 def M_pct(v: float) -> str:
     return f"{v * 100:.1f}%".replace(".", ",")
+
+
+# ═════════════════════════ M4: strategie ETF (S3, S4, S8) ═════════════════════════
+# Griglia fissata A PRIORI (prima di vedere i risultati): ogni variante è un tentativo registrato
+# nella sua famiglia (G-12) e conta nel Deflated Sharpe e nel PBO.
+
+S3_UNIVERSE = ["world_equity", "us_equity", "em_equity", "gold", "global_bonds_hedged", "commodities", "bitcoin_etp"]
+S3_CAPS = {"bitcoin_etp": 0.14}  # G-08: crypto ≤ 15% del conto
+M4_CAPITALS = [Decimal("1000"), Decimal("10000"), Decimal("50")]  # 1.000 € principale, 10.000 € diagnostica
+
+
+def _sectors() -> list[str]:
+    return sorted(i.id for i in load_universe() if "rotation" in i.sleeves)
+
+
+def m4_families() -> dict[str, list[tuple[str, Callable]]]:
+    from .strategies import Combined, SectorRotation, TrendFollowing
+
+    def s3(rebalance="monthly", vol_scaling=True):
+        return TrendFollowing(
+            name=f"S3 {rebalance}{' vol' if vol_scaling else ''}",
+            rebalance=rebalance,
+            universe=S3_UNIVERSE,
+            vol_scaling=vol_scaling,
+            caps=S3_CAPS,
+        )
+
+    def s4(top_k=3, hysteresis=True):
+        return SectorRotation(
+            name=f"S4 top{top_k}{' isteresi' if hysteresis else ''}",
+            sectors=_sectors(),
+            top_k=top_k,
+            hysteresis=hysteresis,
+        )
+
+    return {
+        "s3-tsmom": [
+            ("mensile, vol scaling", lambda: s3("monthly", True)),
+            ("mensile, pesi uguali", lambda: s3("monthly", False)),
+            ("settimanale, vol scaling", lambda: s3("weekly", True)),
+            ("settimanale, pesi uguali", lambda: s3("weekly", False)),
+        ],
+        "s4-rotation": [
+            ("top 3, isteresi", lambda: s4(3, True)),
+            ("top 3, senza isteresi", lambda: s4(3, False)),
+            ("top 2, isteresi", lambda: s4(2, True)),
+            ("top 2, senza isteresi", lambda: s4(2, False)),
+        ],
+        "s3s4-s8": [
+            ("S3+S4 con regime S8", lambda: Combined(name="S3+S4+S8", trend=s3(), rotation=s4(), use_regime=True)),
+            ("S3+S4 senza regime", lambda: Combined(name="S3+S4", trend=s3(), rotation=s4(), use_regime=False)),
+        ],
+    }
+
+
+def m4_report(conn: psycopg.Connection, out_dir: Path | None = None) -> tuple[Path, str]:
+    import numpy as np
+
+    from .report import write_research
+
+    val = load_validation()
+    universe = {i.id: i for i in load_universe()}
+    ids = sorted({*S3_UNIVERSE, *_sectors(), "all_world", "global_bonds_hedged"})
+    md = load_market_data(conn, ids, val["proxy_drag_bps_per_year"], set(val["fx_hedged"]))
+    end = max(d for d in md.calendar if d < val["holdout_start"])
+    # Un anno di storia serve ai segnali: si parte dal primo giorno di borsa del 2017, anche il benchmark.
+    start = min(d for d in md.calendar if d >= date(val["research_start"].year + 1, 1, 1))
+
+    def simulate(strategy, capital: Decimal, family: str, label: str) -> Run:
+        cfg = SimConfig(
+            start=start,
+            end=end,
+            initial_deposit_eur=capital,
+            holdout_start=val["holdout_start"],
+            decision_time=val["decision_time"],
+            resume_after_days=val["resume_after_days"],
+            cash_interest=val["cash_interest"],
+        )
+        res = Simulator(md, universe, cfg).run(strategy)
+        stats = registry.family_stats(conn, family)
+        liq = float(res.liquidation["value_eur"])
+        m = M.compute(
+            res.daily,
+            md.rf,
+            final_nav=liq,
+            costs_eur=float(res.totals["commissions"] + res.totals["spread"] + res.liquidation["sell_costs_eur"]),
+            taxes_eur=float(res.totals["tax_withheld"] + res.totals["stamp_duty"] + res.liquidation["taxes_eur"]),
+            traded_eur=float(sum(f["notional"] for f in res.fills)),
+            n_trades=len(res.fills),
+            n_trials=stats.n_trials + 1,
+            var_trials_sr=stats.var_sharpe_daily,
+        )
+        conf = {k: str(v) for k, v in asdict(cfg).items()} | {"strategy": strategy.name, "variant": label}
+        eid, _ = registry.record(
+            conn,
+            family=family,
+            strategy=strategy.name,
+            config=conf,
+            data_snapshot=md.snapshot,
+            period=(cfg.start, cfg.end),
+            uses_holdout=False,
+            metrics=m,
+            notes=f"M4: {label}, capitale {capital} €",
+        )
+        m["_returns"] = M.twr_returns(res.daily, liq)
+        m["_strategy_stats"] = dict(getattr(strategy, "stats", {}))
+        return Run(label, res, m, eid, {"capital": capital, "family": family})
+
+    bench = {
+        cap: simulate(
+            SavingsPlan(val["benchmark_instrument"], val["benchmark"]["expected_edge_pct"]),
+            cap,
+            "benchmark",
+            "benchmark",
+        )
+        for cap in M4_CAPITALS
+    }
+    families: dict[str, list[Run]] = {}
+    for family, variants in m4_families().items():
+        for cap in M4_CAPITALS:
+            for label, make in variants:
+                run = simulate(make(), cap, family, label)
+                b = bench[cap].metrics
+                run.metrics["benchmark_cagr"] = b["cagr"]
+                run.metrics["excess_cagr"] = run.metrics["cagr"] - b["cagr"]
+                families.setdefault(family, []).append(run)
+
+    pbo: dict[tuple[str, Decimal], float | None] = {}
+    for family, runs in families.items():
+        for cap in M4_CAPITALS:
+            rs = [r for r in runs if r.extra["capital"] == cap]
+            mat = np.column_stack([r.metrics["_returns"].to_numpy() for r in rs])
+            try:
+                pbo[(family, cap)] = M.pbo(mat)
+            except ValueError:
+                pbo[(family, cap)] = None
+    for runs in families.values():
+        for r in runs:
+            r.metrics["pbo"] = pbo[(r.extra["family"], r.extra["capital"])]
+
+    out_dir = out_dir or REPO_ROOT / "reports" / "validation"
+    path = out_dir / f"{date.today()}-m4-strategie-etf.md"
+    sha = write_research(
+        path,
+        families=families,
+        benchmark=bench,
+        context={
+            "code_version": registry.code_version(),
+            "period": (start, end),
+            "holdout": f"dal {val['holdout_start']} — **non usato**",
+            "data_snapshot": md.snapshot,
+        },
+    )
+    return path, sha

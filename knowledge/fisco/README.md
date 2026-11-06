@@ -18,6 +18,7 @@ Il punto di partenza è [broker-e-fisco.md](../../docs/01-raccolta/broker-e-fisc
 | 08 | [Imposta di bollo](08-bollo.md) | ✅ · 🟡 minimo di 1 € |
 | 09 | [Tobin tax (FTT)](09-tobin-tax.md) | ✅ · ⚠️ raddoppio proposto per il 2027 |
 | 10 | [Data che fa fede: regolamento](10-data-regolamento.md) | ✅ ETF · 🟡 azioni |
+| 11 | [Interessi sulla liquidità](11-interessi.md) | 🟡 |
 
 ## Punti aperti da chiudere prima dei soldi veri
 1. **Trade Republic:** ordine di consumo dello zainetto, base di calcolo del bollo, crypto spot in amministrato. Si verificano sul primo rendiconto fiscale reale (M10).

@@ -777,3 +777,22 @@ fn ledger_valida_regolamento_e_white_list() {
         Err(LedgerError::Input(_))
     ));
 }
+
+#[test]
+fn fisco_interessi_sulla_liquidita_al_26() {
+    // 10 € di interessi lordi => 2,60 € di imposta, senza compensazione con lo zainetto.
+    let l = round_trip(funded(), d(2026, 2, 1), "stock", dec!(100), dec!(50)).ok(
+        d(2026, 3, 1),
+        Event::Interest {
+            amount_eur: dec!(10),
+        },
+    );
+    let r = report(&l, 2026);
+    assert_eq!(r.interest.tax_eur, dec!(2.60));
+    assert_eq!(r.tax_estimated_eur, dec!(2.60));
+    assert_eq!(r.zainetto[0].residual_eur, dec!(50));
+    assert_eq!(
+        l.ledger.portfolio().cash_eur,
+        dec!(10000) - dec!(50) + dec!(10)
+    );
+}

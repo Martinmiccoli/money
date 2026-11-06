@@ -78,6 +78,7 @@ class SimConfig:
     allow_holdout: bool = False
     decision_time: time = time(9, 0)
     resume_after_days: int = 20
+    cash_interest: bool = False
     cost_multiplier: Decimal = Decimal("1")
     broker_path: Path = REPO_ROOT / "config/brokers/trade_republic.toml"
     guardrails_path: Path = REPO_ROOT / "config/guardrails.toml"
@@ -178,15 +179,23 @@ class Simulator:
         suspended_days = 0
         executed: list[date] = []
         fills, rejections, risk_events, rows = [], [], [], []
-        totals = {k: Decimal("0") for k in ("commissions", "spread", "ftt", "tax_withheld", "stamp_duty", "deposits")}
+        totals = {
+            k: Decimal("0")
+            for k in ("commissions", "spread", "ftt", "tax_withheld", "stamp_duty", "deposits", "interest")
+        }
+        accrued = 0.0  # interessi maturati sulla liquidità nel mese
         bollo_values: list[tuple[date, float]] = []
         last_month = None
         prev_day: date | None = None
 
-        for day in days:
+        for idx, day in enumerate(days):
             if prev_day and day.year != prev_day.year:
                 self._charge_stamp_duty(prev_day, bollo_values, totals)
                 bollo_values = []
+
+            # 0. interessi del mese precedente (accreditati il primo giorno del mese)
+            if prev_day and (day.year, day.month) != (prev_day.year, prev_day.month):
+                accrued = self._credit_interest(prev_day, accrued, totals)
 
             # 1. versamenti
             flow = Decimal("0")
@@ -231,7 +240,7 @@ class Simulator:
                         max([view.data_age_hours(i) for i in {it.instrument, *holdings}], default=1e9), 1e9
                     ),
                 }
-                res = self._execute(day, it, snapshot, state)
+                res = self._execute(day, it, snapshot, state, view.last_close(it.instrument))
                 if res.get("rejected"):
                     rejections.append({"date": day, "instrument": it.instrument, "side": it.side, **res})
                     continue
@@ -248,6 +257,9 @@ class Simulator:
             )
             nav = cash + invested
             bollo_values.append((day, invested))
+            if cfg.cash_interest and cash > 0:
+                nxt = days[idx + 1] if idx + 1 < len(days) else day + timedelta(days=1)
+                accrued += cash * max(self._rate_pct(day), 0.0) / 100 * (nxt - day).days / 365
             rows.append({"date": day, "nav": nav, "flow": float(flow), "cash": cash, "invested": invested})
             if rm is not None:
                 ev = rm.update(self.guard, nav)
@@ -272,6 +284,7 @@ class Simulator:
             if progress:
                 progress(day)
 
+        self._credit_interest(prev_day, accrued, totals)
         self._charge_stamp_duty(prev_day, bollo_values, totals)
         daily = pd.DataFrame(rows)
         # il bollo dell'ultimo anno riduce la cassa finale
@@ -296,36 +309,42 @@ class Simulator:
             result.tax_reports[y] = json.loads(mc.tax_report(records, tax_json, self.rules, y))
         return result
 
-    def _execute(self, day: date, it: OrderIntent, snapshot: dict, state: str) -> dict:
+    def _execute(self, day: date, it: OrderIntent, snapshot: dict, state: str, decision_px: float | None) -> dict:
+        """Controlla l'ordine con i prezzi noti alla decisione, poi lo esegue all'apertura.
+
+        Come nel sistema reale: la proposta (e il controllo dei guardrails) usa l'ultimo prezzo
+        disponibile alle 9:00; l'esecuzione avviene più tardi, al prezzo di apertura.
+        """
         inst = self.universe[it.instrument]
+        if not decision_px:
+            # nessun dato disponibile = dato infinitamente vecchio: è il caso di G-10
+            return {"rejected": True, "codes": ["G-10"], "detail": "nessun prezzo disponibile alla decisione"}
         ref = self.data.open_on(it.instrument, day)
         if ref is None:
             return {"rejected": True, "codes": ["MERCATO"], "detail": "nessuna quotazione oggi"}
-        ref_s = _d(ref)
-        unit = json.loads(self.broker.quote(inst.asset_class, it.side, "1", ref_s, it.kind))
-        fill_px = Decimal(unit["fill_price_eur"])
-        commission = Decimal(unit["commission_eur"])
+        ref_s, dpx_s = _d(ref), _d(decision_px)
         held = self._holdings().get(it.instrument, Decimal("0"))
 
+        # quantità stimata alla decisione (per i guardrails)
         if it.side == "buy":
-            budget = Decimal(str(it.notional_eur or 0)) - commission
-            qty = (budget / fill_px).quantize(QTY_STEP, rounding=ROUND_DOWN) if budget > 0 else Decimal("0")
+            unit_d = json.loads(self.broker.quote(inst.asset_class, "buy", "1", dpx_s, it.kind))
+            budget = Decimal(str(it.notional_eur or 0)) - Decimal(unit_d["commission_eur"])
+            qty_d = (budget / Decimal(unit_d["fill_price_eur"])).quantize(QTY_STEP, rounding=ROUND_DOWN)
         else:
-            qty = it.qty if it.qty is not None else Decimal(str(it.notional_eur or 0)) / Decimal(ref_s)
-            qty = min(qty.quantize(QTY_STEP, rounding=ROUND_DOWN), held)
-        if qty <= 0:
+            qty_d = it.qty if it.qty is not None else Decimal(str(it.notional_eur or 0)) / Decimal(dpx_s)
+            qty_d = min(qty_d.quantize(QTY_STEP, rounding=ROUND_DOWN), held)
+        if qty_d <= 0:
             return {"rejected": True, "codes": ["QTY"], "detail": "quantità nulla"}
-
-        q = json.loads(self.broker.quote(inst.asset_class, it.side, str(qty), ref_s, it.kind))
-        cost = Decimal(q["commission_eur"]) + Decimal(q["spread_cost_eur"]) + Decimal(q["ftt_eur"])
+        qd = json.loads(self.broker.quote(inst.asset_class, it.side, str(qty_d), dpx_s, it.kind))
+        cost_d = Decimal(qd["commission_eur"]) + Decimal(qd["spread_cost_eur"]) + Decimal(qd["ftt_eur"])
         order = {
             "instrument": it.instrument,
             "asset_class": inst.asset_class,
             "side": it.side,
-            "notional_eur": float(qty * Decimal(ref_s)),
-            "est_cost_eur": float(cost),
+            "notional_eur": float(qty_d * Decimal(dpx_s)),
+            "est_cost_eur": float(cost_d),
             "expected_edge_pct": it.expected_edge_pct,
-            "ref_price": ref,
+            "ref_price": decision_px,
             "limit_price": None,
             "valid_for_hours": None,
         }
@@ -333,6 +352,15 @@ class Simulator:
         if violations:
             return {"rejected": True, "codes": [v["code"] for v in violations], "detail": violations}
 
+        # esecuzione all'apertura: gli acquisti sono per importo (frazioni), le vendite per quantità
+        if it.side == "buy":
+            unit = json.loads(self.broker.quote(inst.asset_class, "buy", "1", ref_s, it.kind))
+            qty = (budget / Decimal(unit["fill_price_eur"])).quantize(QTY_STEP, rounding=ROUND_DOWN)
+        else:
+            qty = qty_d
+        if qty <= 0:
+            return {"rejected": True, "codes": ["QTY"], "detail": "quantità nulla"}
+        q = json.loads(self.broker.quote(inst.asset_class, it.side, str(qty), ref_s, it.kind))
         self._append(
             day,
             {
@@ -360,11 +388,30 @@ class Simulator:
             "reason": it.reason,
         }
         if it.side == "sell":
-            tax = Decimal(mc.tax_due_for_last(self.ledger.records_json(), self._tax_categories, self.rules))
+            tax = Decimal(self.ledger.tax_due_for_last(self._tax_categories, self.rules))
             if tax > 0:
                 self._append(day, {"kind": "TaxWithheld", "amount_eur": str(tax), "reference": "sim"})
                 out["tax_withheld"] = tax
         return out
+
+    def _rate_pct(self, day: date) -> float:
+        """€STR noto al giorno `day` (ultimo valore pubblicato prima)."""
+        rf = self.data.rf
+        i = int(rf["date"].searchsorted(pd.Timestamp(day), side="left")) - 1
+        return float(rf["rate_pct"].iloc[i]) if i >= 0 else 0.0
+
+    def _credit_interest(self, day: date, accrued: float, totals: dict) -> float:
+        """Accredita gli interessi maturati e la ritenuta del 26%. Restituisce il nuovo maturato (0)."""
+        amount = Decimal(str(accrued)).quantize(CENT, rounding=ROUND_DOWN)
+        if amount <= 0:
+            return accrued
+        self._append(day, {"kind": "Interest", "amount_eur": str(amount)})
+        totals["interest"] += amount
+        tax = Decimal(self.ledger.tax_due_for_last(self._tax_categories, self.rules))
+        if tax > 0:
+            self._append(day, {"kind": "TaxWithheld", "amount_eur": str(tax), "reference": "interessi"})
+            totals["tax_withheld"] += tax
+        return accrued - float(amount)
 
     def _charge_stamp_duty(self, day: date | None, values: list[tuple[date, float]], totals: dict) -> None:
         """Bollo 0,2% annuo pro rata sul valore del dossier, giorno per giorno di calendario."""
@@ -410,7 +457,7 @@ class Simulator:
                 )
             )
             sell_costs += Decimal(q["commission_eur"]) + Decimal(q["spread_cost_eur"])
-            taxes += Decimal(mc.tax_due_for_last(led.records_json(), tax_json, self.rules))
+            taxes += Decimal(led.tax_due_for_last(tax_json, self.rules))
         cash = Decimal(json.loads(led.portfolio_json())["cash_eur"])
         return {
             "value_eur": (cash - taxes).quantize(CENT),

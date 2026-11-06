@@ -102,12 +102,17 @@ def _drag_factor(dates: pd.Series, bps_per_year: float) -> np.ndarray:
 
 
 def build_market_data(
-    bars: pd.DataFrame, fx: pd.DataFrame, rf: pd.DataFrame, drag_bps: dict[str, float] | None = None
+    bars: pd.DataFrame,
+    fx: pd.DataFrame,
+    rf: pd.DataFrame,
+    drag_bps: dict[str, float] | None = None,
+    fx_hedged: set[str] | frozenset[str] = frozenset(),
 ) -> MarketData:
     """Costruisce i dati da DataFrame grezzi.
 
     bars: instrument_id, date, open, close, adj_close, currency, available_at
     fx:   date, eurusd            rf: series, date, rate_pct
+    fx_hedged: strumenti coperti in EUR (il prezzo del proxy non si converte con il cambio).
     """
     drag_bps = drag_bps or {}
     bars = bars.copy()
@@ -115,7 +120,7 @@ def build_market_data(
     fx = fx.copy()
     fx["date"] = pd.to_datetime(fx["date"])
     bars = pd.merge_asof(bars.sort_values("date"), fx.sort_values("date"), on="date")
-    usd = bars["currency"] == "USD"
+    usd = (bars["currency"] == "USD") & ~bars["instrument_id"].isin(list(fx_hedged))
     if usd.any() and bars.loc[usd, "eurusd"].isna().any():
         raise ValueError("cambio EURUSD mancante all'inizio del periodo: esegui `money ingest fx`")
     to_eur = np.where(usd, 1.0 / bars["eurusd"].to_numpy(), 1.0)
@@ -147,12 +152,17 @@ def build_market_data(
         h.update(iid.encode())
         h.update(np.round(s.close_eur, 8).tobytes())
         h.update(s.dates.astype("int64").tobytes())
+    # Solo giorni feriali: le crypto quotano anche nel weekend, ma il conto opera in settimana.
     calendar = sorted({pd.Timestamp(d).date() for s in series.values() for d in s.dates})
+    calendar = [d for d in calendar if d.weekday() < 5]
     return MarketData(series=series, rf=rf_all, snapshot=h.hexdigest()[:16], calendar=calendar)
 
 
 def load_market_data(
-    conn: psycopg.Connection, instruments: list[str], drag_bps: dict[str, float] | None = None
+    conn: psycopg.Connection,
+    instruments: list[str],
+    drag_bps: dict[str, float] | None = None,
+    fx_hedged: set[str] | frozenset[str] = frozenset(),
 ) -> MarketData:
     bars = pd.DataFrame(
         conn.execute(
@@ -173,4 +183,4 @@ def load_market_data(
         conn.execute("SELECT series, date, rate_pct FROM market.rate_1d ORDER BY date").fetchall(),
         columns=["series", "date", "rate_pct"],
     )
-    return build_market_data(bars, fx, rf, drag_bps)
+    return build_market_data(bars, fx, rf, drag_bps, fx_hedged)
