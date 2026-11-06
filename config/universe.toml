@@ -1,0 +1,212 @@
+# Universo degli strumenti (M1). Per ogni strumento REALE (UCITS/ETP, negoziabile su Trade Republic)
+# si indica il PROXY usato per lo storico, perché non esiste una fonte gratuita pulita per i prezzi UCITS
+# (docs/01-raccolta/approfondimenti-fase3.md). I proxy USA si convertono in EUR con il cambio BCE.
+#
+# ISIN: compilati solo quelli certi. Gli altri sono vuoti = DA VERIFICARE prima del live (mai inventarli).
+# tax_category: RC = plusvalenze come redditi di capitale (ETF) · RD = redditi diversi (ETC/ETN/azioni)
+
+[[instrument]]
+id = "all_world"            # BENCHMARK e core (piano di accumulo)
+name = "Vanguard FTSE All-World UCITS ETF (Acc)"
+asset_class = "etf_ucits"
+isin = "IE00BK5BQT80"
+currency = "EUR"
+tax_category = "RC"
+sleeves = ["core", "benchmark"]
+proxy = { source = "alpaca_stock", symbol = "VT", quote_currency = "USD" }
+
+[[instrument]]
+id = "world_equity"
+name = "iShares Core MSCI World UCITS ETF"
+asset_class = "etf_ucits"
+isin = "IE00B4L5Y983"
+currency = "EUR"
+tax_category = "RC"
+sleeves = ["trend"]
+proxy = { source = "alpaca_stock", symbol = "URTH", quote_currency = "USD" }
+
+[[instrument]]
+id = "us_equity"
+name = "iShares Core S&P 500 UCITS ETF"
+asset_class = "etf_ucits"
+isin = "IE00B5BMR087"
+currency = "EUR"
+tax_category = "RC"
+sleeves = ["trend"]
+proxy = { source = "alpaca_stock", symbol = "SPY", quote_currency = "USD" }
+
+[[instrument]]
+id = "em_equity"
+name = "iShares Core MSCI EM IMI UCITS ETF"
+asset_class = "etf_ucits"
+isin = "IE00BKM4GZ66"
+currency = "EUR"
+tax_category = "RC"
+sleeves = ["trend"]
+proxy = { source = "alpaca_stock", symbol = "EEM", quote_currency = "USD" }
+
+[[instrument]]
+id = "gold"
+name = "iShares Physical Gold ETC"
+asset_class = "etf_ucits"   # ETC: classe operativa come ETF ampio, fiscalmente RD
+isin = "IE00B4ND3602"
+currency = "EUR"
+tax_category = "RD"
+sleeves = ["trend"]
+proxy = { source = "alpaca_stock", symbol = "GLD", quote_currency = "USD" }
+
+[[instrument]]
+id = "global_bonds_hedged"
+name = "Obbligazionario globale governativo EUR-hedged (UCITS da scegliere)"
+asset_class = "etf_ucits"
+currency = "EUR"
+tax_category = "RC"
+sleeves = ["trend", "safe_haven"]
+notes = "Proxy imperfetto: BNDX è hedged in USD, non in EUR."
+proxy = { source = "alpaca_stock", symbol = "BNDX", quote_currency = "USD" }
+
+[[instrument]]
+id = "commodities"
+name = "Materie prime ampie (UCITS/ETC da scegliere)"
+asset_class = "etf_ucits"
+currency = "EUR"
+tax_category = "RD"
+sleeves = ["trend"]
+proxy = { source = "alpaca_stock", symbol = "DBC", quote_currency = "USD" }
+
+[[instrument]]
+id = "bitcoin_etp"
+name = "ETP Bitcoin fisicamente garantito (da scegliere)"
+asset_class = "crypto_etp"
+currency = "EUR"
+tax_category = "RD"
+sleeves = ["trend", "crypto_lab"]
+proxy = { source = "alpaca_crypto", symbol = "BTC/USD", quote_currency = "USD" }
+
+[[instrument]]
+id = "ethereum_etp"
+name = "ETP Ethereum fisicamente garantito (da scegliere)"
+asset_class = "crypto_etp"
+currency = "EUR"
+tax_category = "RD"
+sleeves = ["crypto_lab"]
+proxy = { source = "alpaca_crypto", symbol = "ETH/USD", quote_currency = "USD" }
+
+# --- Fattori (S5) ---
+[[instrument]]
+id = "factor_quality"
+name = "MSCI World Quality UCITS (da scegliere)"
+asset_class = "etf_ucits"
+currency = "EUR"
+tax_category = "RC"
+sleeves = ["factors"]
+proxy = { source = "alpaca_stock", symbol = "QUAL", quote_currency = "USD" }
+
+[[instrument]]
+id = "factor_value"
+name = "MSCI World Value UCITS (da scegliere)"
+asset_class = "etf_ucits"
+currency = "EUR"
+tax_category = "RC"
+sleeves = ["factors"]
+proxy = { source = "alpaca_stock", symbol = "VLUE", quote_currency = "USD" }
+
+[[instrument]]
+id = "factor_minvol"
+name = "MSCI World Minimum Volatility UCITS (da scegliere)"
+asset_class = "etf_ucits"
+currency = "EUR"
+tax_category = "RC"
+sleeves = ["factors"]
+proxy = { source = "alpaca_stock", symbol = "ACWV", quote_currency = "USD" }
+
+# --- Settori USA (S4 rotazione); UCITS equivalenti: S&P US Select Sector (da scegliere) ---
+[[instrument]]
+id = "sector_tech"
+name = "Settore Tecnologia USA"
+asset_class = "etf_ucits"
+currency = "EUR"
+tax_category = "RC"
+sleeves = ["rotation"]
+proxy = { source = "alpaca_stock", symbol = "XLK", quote_currency = "USD" }
+
+[[instrument]]
+id = "sector_financials"
+name = "Settore Finanziari USA"
+asset_class = "etf_ucits"
+currency = "EUR"
+tax_category = "RC"
+sleeves = ["rotation"]
+proxy = { source = "alpaca_stock", symbol = "XLF", quote_currency = "USD" }
+
+[[instrument]]
+id = "sector_health"
+name = "Settore Salute USA"
+asset_class = "etf_ucits"
+currency = "EUR"
+tax_category = "RC"
+sleeves = ["rotation"]
+proxy = { source = "alpaca_stock", symbol = "XLV", quote_currency = "USD" }
+
+[[instrument]]
+id = "sector_energy"
+name = "Settore Energia USA"
+asset_class = "etf_ucits"
+currency = "EUR"
+tax_category = "RC"
+sleeves = ["rotation"]
+proxy = { source = "alpaca_stock", symbol = "XLE", quote_currency = "USD" }
+
+[[instrument]]
+id = "sector_industrials"
+name = "Settore Industriali USA"
+asset_class = "etf_ucits"
+currency = "EUR"
+tax_category = "RC"
+sleeves = ["rotation"]
+proxy = { source = "alpaca_stock", symbol = "XLI", quote_currency = "USD" }
+
+[[instrument]]
+id = "sector_discretionary"
+name = "Settore Beni voluttuari USA"
+asset_class = "etf_ucits"
+currency = "EUR"
+tax_category = "RC"
+sleeves = ["rotation"]
+proxy = { source = "alpaca_stock", symbol = "XLY", quote_currency = "USD" }
+
+[[instrument]]
+id = "sector_staples"
+name = "Settore Beni di prima necessità USA"
+asset_class = "etf_ucits"
+currency = "EUR"
+tax_category = "RC"
+sleeves = ["rotation"]
+proxy = { source = "alpaca_stock", symbol = "XLP", quote_currency = "USD" }
+
+[[instrument]]
+id = "sector_utilities"
+name = "Settore Utility USA"
+asset_class = "etf_ucits"
+currency = "EUR"
+tax_category = "RC"
+sleeves = ["rotation"]
+proxy = { source = "alpaca_stock", symbol = "XLU", quote_currency = "USD" }
+
+[[instrument]]
+id = "sector_materials"
+name = "Settore Materiali USA"
+asset_class = "etf_ucits"
+currency = "EUR"
+tax_category = "RC"
+sleeves = ["rotation"]
+proxy = { source = "alpaca_stock", symbol = "XLB", quote_currency = "USD" }
+
+[[instrument]]
+id = "sector_communication"
+name = "Settore Comunicazioni USA"
+asset_class = "etf_ucits"
+currency = "EUR"
+tax_category = "RC"
+sleeves = ["rotation"]
+proxy = { source = "alpaca_stock", symbol = "XLC", quote_currency = "USD" }

@@ -11,7 +11,7 @@ Sistema personale di investimento quantitativo: segnali da insider, superinvesto
 | 2. Progettazione e guardrails | ✅ [architettura](docs/02-progettazione/architettura.md) · [guardrails](docs/02-progettazione/guardrails.md) · [validazione](docs/02-progettazione/validazione.md) |
 | 3. System design puntuale | ✅ [indice e roadmap](docs/03-system-design/00-indice-e-roadmap.md) |
 | 4. Linguaggi | ✅ [ADR-001](docs/02-progettazione/adr/001-stack-linguaggi.md) |
-| 5. Sviluppo | ⏳ (guardrails già implementati e testati in `engine/crates/money-core`) |
+| 5. Sviluppo | 🚧 M1 dati ✅ · guardrails in `money-core` ✅ |
 | 6. Paper → validazione → live | ⏳ |
 
 ## Struttura

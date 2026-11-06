@@ -1,0 +1,172 @@
+"""CLI `money`: uv run money <comando>.
+
+money db migrate               applica le migrazioni SQL
+money universe sync            carica config/universe.toml nel DB
+money ingest fx                cambi BCE (nessuna chiave)
+money ingest prices            prezzi giornalieri dei proxy (Alpaca; crypto anche senza chiavi)
+money ingest all               tutto quanto sopra (incluse migrazioni e universo)
+money status                   copertura dei dati e ultime esecuzioni
+money chart [id ...]           grafico dei prezzi in EUR (base 100) in reports/charts/
+"""
+
+from __future__ import annotations
+
+import argparse
+import logging
+import sys
+from datetime import date, timedelta
+
+from . import db
+from .config import REPO_ROOT, ConfigError, load_settings, load_universe
+from .ingest import ecb, prices
+from .ingest.alpaca import AlpacaData, AlpacaError
+
+log = logging.getLogger("money")
+
+
+def _conn():
+    return db.connect(load_settings().database_url)
+
+
+def cmd_migrate(_args) -> None:
+    with _conn() as c:
+        done = db.migrate(c)
+    print("migrazioni applicate:", ", ".join(done) if done else "nessuna (DB già aggiornato)")
+
+
+def cmd_universe(_args) -> None:
+    inst = load_universe()
+    with _conn() as c:
+        n = db.sync_universe(c, inst)
+    print(f"universo sincronizzato: {n} strumenti")
+
+
+def cmd_fx(args) -> None:
+    with _conn() as c, db.ingest_run(c, "fx_ecb") as run:
+        last = c.execute("SELECT max(date) FROM market.fx_1d WHERE pair='EURUSD'").fetchone()[0]
+        start = args.start or (last - timedelta(days=7) if last else prices.DEFAULT_START)
+        rates = ecb.fetch_eur_rates("USD", start)
+        run["rows"] = ecb.store(c, rates)
+    print(f"cambi BCE EURUSD: {len(rates)} righe da {start}")
+
+
+def cmd_prices(args) -> None:
+    s = load_settings()
+    inst = load_universe()
+    if not s.has_alpaca_keys:
+        print("⚠️  chiavi Alpaca assenti: scarico solo le crypto (le azioni/ETF richiedono le chiavi)")
+        inst = [i for i in inst if i.proxy.source == "alpaca_crypto"]
+    client = AlpacaData(s.alpaca_key_id, s.alpaca_secret_key, s.alpaca_feed)
+    with db.connect(s.database_url) as c, db.ingest_run(c, "prices_alpaca") as run:
+        start = args.start or prices.incremental_start(inst, prices.last_dates(c))
+        rows = prices.fetch(client, inst, start, args.end)
+        run["rows"] = prices.store(c, rows)
+        missing = sorted({i.id for i in inst} - {r.instrument_id for r in rows})
+        if missing:
+            run["status"], run["detail"] = "partial", "nessun dato per: " + ", ".join(missing)
+    print(f"prezzi: {len(rows)} barre da {start} (feed {client.feed})")
+    if missing:
+        print("⚠️  nessun dato per:", ", ".join(missing))
+
+
+def cmd_all(args) -> None:
+    cmd_migrate(args)
+    cmd_universe(args)
+    cmd_fx(args)
+    cmd_prices(args)
+
+
+def cmd_status(_args) -> None:
+    with _conn() as c:
+        rows = c.execute(
+            """SELECT i.instrument_id, m.source_symbol, count(b.date), min(b.date), max(b.date)
+               FROM ref.instrument i
+               LEFT JOIN ref.instrument_map m USING (instrument_id)
+               LEFT JOIN market.bar_1d b USING (instrument_id)
+               GROUP BY 1, 2 ORDER BY 1"""
+        ).fetchall()
+        fx = c.execute("SELECT count(*), min(date), max(date) FROM market.fx_1d WHERE pair='EURUSD'").fetchone()
+        runs = c.execute(
+            "SELECT job, status, finished_at, rows_written, coalesce(detail,'') FROM ops.ingest_run "
+            "ORDER BY run_id DESC LIMIT 6"
+        ).fetchall()
+    print(f"{'strumento':24} {'proxy':9} {'barre':>6}  {'dal':10}  {'al':10}")
+    for iid, sym, n, lo, hi in rows:
+        print(f"{iid:24} {sym or '-':9} {n:>6}  {str(lo or '-'):10}  {str(hi or '-'):10}")
+    print(f"\ncambi EURUSD: {fx[0]} giorni, {fx[1]} → {fx[2]}")
+    print("\nultime esecuzioni:")
+    for job, st, fin, n, det in runs:
+        print(f"  {fin:%Y-%m-%d %H:%M}  {job:14} {st:8} {n:>6} righe  {det[:80]}" if fin else f"  {job} {st}")
+
+
+def cmd_chart(args) -> None:
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import pandas as pd
+
+    with _conn() as c:
+        ids = args.ids or ["all_world", "us_equity", "gold", "bitcoin_etp"]
+        bars = pd.DataFrame(
+            c.execute(
+                "SELECT instrument_id, date, coalesce(adj_close, close), currency FROM market.bar_1d "
+                "WHERE instrument_id = ANY(%s) ORDER BY date",
+                (ids,),
+            ).fetchall(),
+            columns=["id", "date", "px", "ccy"],
+        )
+        fx = pd.DataFrame(
+            c.execute("SELECT date, rate FROM market.fx_1d WHERE pair='EURUSD' ORDER BY date").fetchall(),
+            columns=["date", "eurusd"],
+        )
+    if bars.empty:
+        sys.exit("nessun dato: esegui prima `money ingest all`")
+    bars["date"] = pd.to_datetime(bars["date"])
+    fx["date"] = pd.to_datetime(fx["date"])
+    # Conversione in EUR con l'ultimo cambio BCE disponibile (as-of, nessun dato futuro).
+    bars = pd.merge_asof(bars.sort_values("date"), fx.sort_values("date"), on="date")
+    bars["px_eur"] = bars["px"].where(bars["ccy"] == "EUR", bars["px"] / bars["eurusd"])
+    wide = bars.pivot_table(index="date", columns="id", values="px_eur").dropna(how="all")
+    wide = wide.loc[wide.dropna().index.min() :] if not wide.dropna().empty else wide
+    norm = wide / wide.iloc[0] * 100
+    out_dir = REPO_ROOT / "reports" / "charts"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out = out_dir / f"prezzi-eur-{date.today():%Y%m%d}.png"
+    ax = norm.plot(figsize=(11, 6), logy=True, title="Prezzi in EUR (base 100, scala log) — proxy rettificati")
+    ax.set_xlabel("")
+    ax.grid(alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(out, dpi=120)
+    print(f"grafico salvato in {out}")
+
+
+def main(argv: list[str] | None = None) -> None:
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+    p = argparse.ArgumentParser(prog="money", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    sub = p.add_subparsers(dest="cmd", required=True)
+
+    sub.add_parser("db").add_subparsers(dest="sub", required=True).add_parser("migrate").set_defaults(fn=cmd_migrate)
+    sub.add_parser("universe").add_subparsers(dest="sub", required=True).add_parser("sync").set_defaults(
+        fn=cmd_universe
+    )
+    ing = sub.add_parser("ingest").add_subparsers(dest="sub", required=True)
+    for name, fn in [("fx", cmd_fx), ("prices", cmd_prices), ("all", cmd_all)]:
+        sp = ing.add_parser(name)
+        sp.add_argument("--start", type=date.fromisoformat, help="AAAA-MM-GG (default: incrementale)")
+        sp.add_argument("--end", type=date.fromisoformat)
+        sp.set_defaults(fn=fn)
+    sub.add_parser("status").set_defaults(fn=cmd_status)
+    ch = sub.add_parser("chart")
+    ch.add_argument("ids", nargs="*")
+    ch.set_defaults(fn=cmd_chart)
+
+    args = p.parse_args(argv)
+    try:
+        args.fn(args)
+    except (ConfigError, AlpacaError) as e:
+        sys.exit(f"errore: {e}")
+
+
+if __name__ == "__main__":
+    main()

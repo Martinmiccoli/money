@@ -26,6 +26,8 @@ Quando l'utente chiede di fisco:
 ## Stack e comandi
 - Rust (`engine/`): non è installato in locale, si usa Docker:
   `docker run --rm -v "$PWD":/w -w /w/engine -e CARGO_HOME=/w/.cache/cargo -e CARGO_TARGET_DIR=/w/.cache/target rust:1-slim cargo test`
-- Python (`research/`): uv, Python 3.12
+- Python (`research/`): uv, Python 3.12. `cd research && uv run pytest` (con `TEST_DATABASE_URL` girano anche i test sul DB)
+- DB locale: `docker compose -f infra/docker-compose.yml --env-file .env up -d` (Postgres + Timescale su 127.0.0.1:5433)
+- Dati: `cd research && uv run money ingest all` · `uv run money status` · `uv run money chart`
 - TypeScript (`web/`): Node
 - Branch di lavoro: `dev`. Commit in italiano.

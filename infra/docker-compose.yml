@@ -1,0 +1,21 @@
+# Stack locale / VM Oracle. Uso:  docker compose -f infra/docker-compose.yml --env-file .env up -d
+name: money
+services:
+  db:
+    image: timescale/timescaledb:2.17.2-pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-money}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?imposta POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-money}
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5433}:5432"   # solo localhost, mai esposto in rete
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-money} -d ${POSTGRES_DB:-money}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+volumes:
+  pgdata:
