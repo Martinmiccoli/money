@@ -1,0 +1,19 @@
+[package]
+name = "money-py"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Binding Python (PyO3) di money-core: stessi costi, ledger e fisco nei backtest"
+
+[lib]
+name = "money_py"
+crate-type = ["cdylib"]
+
+[dependencies]
+money-core = { path = "../money-core" }
+pyo3 = { version = "0.30", features = ["extension-module", "abi3-py312"] }
+serde = "1"
+serde_json = "1"
+rust_decimal = "1"
+chrono = { version = "0.4", default-features = false, features = ["serde", "std"] }

@@ -1,0 +1,20 @@
+# Profilo costi di Trade Republic (docs/03-system-design/04-costi-e-fisco.md).
+# Usato in backtest e paper anche quando il fill avviene altrove (Alpaca): il backtest deve
+# pagare gli stessi costi che pagheremo davvero.
+#
+# Ogni classe di strumento DEVE avere uno spread: una classe mancante blocca il caricamento
+# (mai costi a zero per dimenticanza).
+
+name = "trade_republic"
+fee_per_order_eur = 1.0      # commissione fissa per ordine (fonti multiple, docs/01-raccolta/broker-e-fisco.md)
+fee_savings_plan_eur = 0.0   # piani di accumulo gratuiti
+ftt_it_bps = 20              # Tobin tax 0,2% sugli acquisti di azioni italiane con cap >= 500 M€ (L. 199/2025)
+
+# Spread bid/ask COMPLETO in punti base: ogni lato paga metà spread.
+# ⚠️ STIME, da calibrare sui fill reali (mediana degli ultimi N fill).
+[spread_bps]
+etf_ucits = 10
+etf_us = 10        # solo paper (proxy USA)
+stock_us = 20      # su LS Exchange il cambio EUR/USD è incluso nello spread
+crypto_etp = 40
+crypto_spot = 40   # solo paper

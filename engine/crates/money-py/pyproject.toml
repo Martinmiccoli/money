@@ -1,0 +1,14 @@
+[build-system]
+requires = ["maturin>=1.7,<2"]
+build-backend = "maturin"
+
+[project]
+name = "money-py"
+version = "0.1.0"
+requires-python = ">=3.12"
+description = "Binding Python di money-core"
+
+[tool.maturin]
+features = []
+module-name = "money_py._core"
+python-source = "python"

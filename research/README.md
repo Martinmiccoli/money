@@ -19,3 +19,7 @@ Senza chiavi Alpaca vengono scaricate solo le crypto; azioni ed ETF richiedono l
 | `ingest/ecb.py` | cambi di riferimento BCE |
 | `ingest/alpaca.py` | client Market Data Alpaca (paginazione, retry 429, fallback SIP→IEX) |
 | `ingest/prices.py` | barre giornaliere raw + rettificate dei proxy, ingest incrementale |
+
+## Binding `money_py` (M2)
+Costi, ledger e fisco del backtest arrivano da `money-core` (Rust) tramite PyO3, così il backtest paga gli stessi costi e le stesse tasse del live.
+Gli importi passano come stringhe decimali (`decimal.Decimal`), mai come float. I test `tests/test_money_py.py` vengono saltati se il binding non è installato.

@@ -16,7 +16,7 @@ jobs:
         with:
           components: clippy, rustfmt
       - run: cargo fmt --check
-      - run: cargo clippy --all-targets -- -D warnings
+      - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test
 
   python:
@@ -39,10 +39,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
+      - uses: dtolnay/rust-toolchain@stable
       - run: uv sync
       - run: uv run ruff check .
       - run: uv run ruff format --check .
-      - run: uv run pytest -q
+      # Binding money-core (PyO3): i test in tests/test_money_py.py lo richiedono.
+      - run: uv pip install ../engine/crates/money-py
+      - run: uv run --no-sync pytest -q
 
   secrets:   # G-14
     runs-on: ubuntu-latest

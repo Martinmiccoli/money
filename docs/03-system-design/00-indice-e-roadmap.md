@@ -14,8 +14,8 @@ Ogni milestone finisce con test verdi e una demo funzionante.
 
 | M | Obiettivo | Contenuto | Risultato visibile |
 |---|---|---|---|
-| **M1** | Dati | Docker Compose (Postgres + Timescale), schema 3.3, ingest dei prezzi (Alpaca, cambio BCE, ETF UCITS) | DB popolato, grafici dei prezzi |
-| **M2** | Cuore contabile | `money-core`: costi, ledger (decimal, catena di hash), fisco/zainetto; binding PyO3 | test sul fisco con casi reali |
+| **M1** ✅ | Dati | Docker Compose (Postgres + Timescale), schema 3.3, ingest dei prezzi (Alpaca, cambio BCE, ETF UCITS) | DB popolato, grafici dei prezzi |
+| **M2** ✅ | Cuore contabile | `money-core`: costi, ledger (decimal, catena di hash), fisco/zainetto; binding PyO3 | test sul fisco con casi reali |
 | **M3** | Simulatore + metriche | backtest event-driven, DSR, PBO, registro G-12, report di validazione | primo report: **benchmark piano di accumulo** |
 | **M4** | Prime strategie | S3 trend + S4 rotazione + S8 regime (solo ETF: i dati più semplici) | Gate 0 sulle strategie ETF |
 | **M5** | Insider | ingest Form 4 + S1 + filtri | Gate 0 su S1 |

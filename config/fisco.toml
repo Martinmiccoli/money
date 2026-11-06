@@ -1,0 +1,37 @@
+# Regole fiscali usate da money-core::tax (regime amministrato, persona fisica residente).
+# Ogni regola ha la scheda con fonte e data di verifica in knowledge/fisco/.
+# Le date sono stringhe "AAAA-MM-GG". Una modifica a questo file va committata con la fonte.
+#
+# ⚠️ Il motore produce STIME. Prima di qualsiasi dichiarazione serve la verifica di un commercialista.
+
+verified_on = "2026-11-07"
+
+# Minusvalenze riportabili fino al 4° periodo d'imposta successivo (art. 68 c. 5 TUIR; dal 2027 art. 77 c. 5 nuovo TUIR).
+loss_carryforward_years = 4
+
+# Imposta di bollo sul dossier titoli: 0,2% annuo pro rata (dal 2026: art. 9 c. 4 Tariffa All. 3 D.Lgs. 123/2025).
+stamp_duty_pct_per_year = 0.2
+
+# Redditi da titoli di Stato "white list" (anche la quota dentro gli ETF): imponibili al 48,08%,
+# cioè 12,5% effettivo. Per gli ETF si applica anche alle minusvalenze (DM 13/12/2011 art. 1 c. 4).
+white_list_taxable_share_pct = 48.08
+
+# Aliquote per paniere. Vale l'ultima con "from" <= data dell'operazione.
+# basket "ordinary" = redditi diversi e redditi di capitale finanziari; "crypto" = cripto-attività spot.
+[[rate]]
+basket = "ordinary"
+from = "2014-07-01"
+pct = 26.0
+source = "D.L. 66/2014, art. 3; dal 2027 art. 304 c. 1 nuovo TUIR (D.Lgs. 117/2026)"
+
+[[rate]]
+basket = "crypto"
+from = "2023-01-01"
+pct = 26.0
+source = "L. 197/2022 (art. 67 c. 1 lett. c-sexies TUIR)"
+
+[[rate]]
+basket = "crypto"
+from = "2026-01-01"
+pct = 33.0
+source = "L. 207/2024 c. 24; dal 2027 art. 304 c. 7 nuovo TUIR (D.Lgs. 117/2026)"
