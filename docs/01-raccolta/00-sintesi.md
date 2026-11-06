@@ -32,8 +32,12 @@ Rapporti di dettaglio:
 - **Dati:** Alpaca data, SEC EDGAR (13F e Form 4), dump Binance, GDELT, Marketaux, FRED, ECB.
 - **Framework:** NautilusTrader (core in Rust) è il candidato, **ma non supporta Alpaca**. Le alternative sono un engine Rust leggero scritto da noi con un adapter per Alpaca, oppure Nautilus solo per il backtest.
 
-## 4. Decisioni richieste all'utente
-1. La modalità ibrida (tap manuale) per il live con 50 € è accettabile?
-2. Crypto tramite ETP nel live e crypto dirette solo in paper: ok?
-3. Frequenza di trading da settimanale a mensile: ok?
-4. Azioni italiane fuori dal live iniziale: ok?
+## 4. Decisioni prese (2026-11-06)
+1. **Live: modalità ibrida, con la decisione finale rimandata a dopo il paper trading.**
+   - Il sistema supporta entrambe le modalità: ibrida, oppure automazione totale con un broker in regime dichiarativo e il quadro fiscale preparato dall'agente.
+   - In modalità ibrida i segnali hanno una **finestra di validità** (scadenza e prezzo limite) e arrivano come **notifica sul telefono**.
+   - Gli **stop-loss** stanno sul broker. La quota base in ETF va su un **piano di accumulo** automatico, senza commissioni.
+   - Durante il paper trading tutto è automatico.
+2. **Crypto: ETP nel live** (regime amministrato al 26%). Le crypto dirette restano **solo in paper**, come laboratorio per i segnali di sentiment.
+3. **Frequenza:** la sceglie il backtest (giornaliera, settimanale o mensile), confrontando lo Sharpe al netto di costi e tasse.
+4. **Azioni italiane: escluse dal live iniziale.** Il focus è su USA ed ETF UCITS.
