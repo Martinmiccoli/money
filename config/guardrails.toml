@@ -1,0 +1,36 @@
+# Guardrails — vedi docs/02-progettazione/guardrails.md
+# Il motore valida questo file all'avvio: valori fuori dai limiti massimi codificati
+# in money-core bloccano l'avvio. Ogni modifica va committata con una motivazione.
+
+# paper | hybrid | live  (hybrid e live = soldi veri, richiedono il report di validazione, G-15)
+mode = "paper"
+validation_report_sha256 = ""
+
+[capital]
+net_deposits_eur = 50.0          # capitale netto versato (base del kill switch G-02)
+
+[drawdown]
+soft_stop_pct = 15.0             # G-01: dal massimo storico dell'equity -> Sospeso
+hard_kill_pct = 50.0             # G-02: rispetto al capitale versato -> Bloccato
+
+[orders]
+max_cost_ratio_pct = 2.0         # G-05: costo / controvalore
+min_edge_to_cost = 2.0           # G-06: rendimento atteso >= k * costo round-trip
+max_orders_per_day = 3           # G-07
+max_orders_per_week = 10         # G-07
+
+[positions]
+max_single_stock_pct = 20.0      # G-08
+max_broad_etf_pct = 100.0        # G-08
+max_crypto_etp_total_pct = 15.0  # G-08
+
+[hybrid]
+max_limit_slippage_pct = 1.5     # G-09: distanza max del prezzo limite dal prezzo di riferimento
+proposal_ttl_hours = 72          # G-09: scadenza massima di una proposta
+
+[data]
+max_staleness_hours = 36.0       # G-10
+
+[instruments]                    # G-13
+real_money = ["stock_us", "etf_ucits", "crypto_etp"]
+paper_only = ["crypto_spot", "etf_us"]

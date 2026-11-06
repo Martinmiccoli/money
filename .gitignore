@@ -1,0 +1,20 @@
+# build & cache
+.cache/
+target/
+node_modules/
+dist/
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+# dati e segreti
+.env
+.env.*
+!.env.example
+data/
+*.parquet
+*.db
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
