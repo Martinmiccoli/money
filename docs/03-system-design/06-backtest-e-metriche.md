@@ -53,3 +53,8 @@ Viene generato automaticamente in `reports/validation/AAAA-MM-GG-<strategia>.md`
 - elenco dei tentativi.
 
 Il suo sha256 è quello richiesto da G-15 per passare a `hybrid`/`live`.
+
+## Note dall'implementazione (M3, 2026-11-07)
+- **G-10 e il lunedì:** con la soglia di 36 h, alle 9:00 del lunedì il dato più recente (venerdì, disponibile alle 23:00) ha circa 58 h, quindi ogni ordine del lunedì e del giorno dopo un festivo USA viene rifiutato. Nel backtest l'ordine si riprova il giorno dopo. **Da decidere prima del paper trading (M6):** misurare l'età in ore di borsa oppure accettarlo così. Cambiare la misura equivale a toccare un guardrail, quindi serve una richiesta esplicita dell'utente.
+- **Prezzi dei proxy:** si usano le serie USA rettificate (dividendi reinvestiti, come un ETF ad accumulo), convertite in EUR e ridotte di un costo annuo stimato (`proxy_drag_bps_per_year` in `config/validation.toml`).
+- **Tasse latenti:** il CAGR netto include la liquidazione finale (vendita di tutto, con commissione e 26%). Così una strategia che realizza spesso e una che tiene fermo si confrontano alla pari.

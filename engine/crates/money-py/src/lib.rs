@@ -9,10 +9,13 @@ use std::collections::BTreeMap;
 use chrono::NaiveDate;
 
 use money_core::{
+    config::GuardrailsConfig as CoreGuardrails,
     costs::{BrokerProfile as CoreBroker, OrderKind},
+    guardrails,
     ledger::{self, Ledger as CoreLedger, NewEvent, Record},
+    risk::{RiskMachine as CoreRisk, RiskState},
     tax::{self, TaxCategory, TaxRules as CoreRules},
-    types::{AssetClass, Side},
+    types::{AssetClass, OrderRequest, PortfolioSnapshot, Side},
 };
 use pyo3::{exceptions::PyValueError, prelude::*};
 use rust_decimal::Decimal;
@@ -243,11 +246,103 @@ fn stamp_duty_estimate(rules: &TaxRules, daily_values_json: &str) -> PyResult<St
     Ok(tax::stamp_duty_estimate(&rules.inner, &v).to_string())
 }
 
+/// Configurazione dei guardrails (`config/guardrails.toml`), validata al caricamento.
+#[pyclass(module = "money_py")]
+struct GuardrailsConfig {
+    inner: CoreGuardrails,
+}
+
+#[pymethods]
+impl GuardrailsConfig {
+    #[staticmethod]
+    fn load(path: &str) -> PyResult<Self> {
+        Ok(Self {
+            inner: CoreGuardrails::load(path).map_err(err)?,
+        })
+    }
+
+    #[staticmethod]
+    fn from_toml(s: &str) -> PyResult<Self> {
+        Ok(Self {
+            inner: CoreGuardrails::from_toml_str(s).map_err(err)?,
+        })
+    }
+
+    fn mode(&self) -> String {
+        format!("{:?}", self.inner.mode).to_lowercase()
+    }
+}
+
+/// Controllo pre-trade. Restituisce la lista JSON delle violazioni (vuota = ordine ammesso):
+/// `[{"code": "G-05", "detail": "..."}]`.
+#[pyfunction]
+fn check_order(
+    cfg: &GuardrailsConfig,
+    risk_state: &str,
+    portfolio_json: &str,
+    order_json: &str,
+) -> PyResult<String> {
+    let state: RiskState = enum_from_str(risk_state, "risk_state (Active|Suspended|Locked)")?;
+    let pf: PortfolioSnapshot = from_json(portfolio_json, "portfolio")?;
+    let o: OrderRequest = from_json(order_json, "order")?;
+    let violations = match guardrails::check_order(&cfg.inner, state, &pf, &o) {
+        Ok(()) => Vec::new(),
+        Err(v) => v
+            .iter()
+            .map(|x| serde_json::json!({"code": x.code(), "detail": format!("{x:?}")}))
+            .collect(),
+    };
+    Ok(to_json(&violations))
+}
+
+/// Macchina a stati del rischio (G-01 soft stop, G-02 kill switch).
+#[pyclass(module = "money_py")]
+struct RiskMachine {
+    inner: CoreRisk,
+}
+
+#[pymethods]
+impl RiskMachine {
+    #[new]
+    fn new(initial_equity_eur: f64) -> Self {
+        Self {
+            inner: CoreRisk::new(initial_equity_eur),
+        }
+    }
+
+    /// "Active" | "Suspended" | "Locked".
+    fn state(&self) -> String {
+        format!("{:?}", self.inner.state())
+    }
+
+    fn high_water_mark_eur(&self) -> f64 {
+        self.inner.high_water_mark_eur()
+    }
+
+    /// Aggiorna con l'equity corrente; restituisce l'evento JSON della transizione o None.
+    fn update(&mut self, cfg: &GuardrailsConfig, equity_eur: f64) -> Option<String> {
+        self.inner
+            .update(&cfg.inner, equity_eur)
+            .map(|e| to_json(&e))
+    }
+
+    /// Ripartenza esplicita dopo un soft stop.
+    fn resume(&mut self, equity_eur: f64) -> PyResult<String> {
+        self.inner
+            .resume(equity_eur)
+            .map(|e| to_json(&e))
+            .map_err(|e| err(format!("{e:?}")))
+    }
+}
+
 #[pymodule]
 fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<Ledger>()?;
     m.add_class::<BrokerProfile>()?;
     m.add_class::<TaxRules>()?;
+    m.add_class::<GuardrailsConfig>()?;
+    m.add_class::<RiskMachine>()?;
+    m.add_function(wrap_pyfunction!(check_order, m)?)?;
     m.add_function(wrap_pyfunction!(verify_chain, m)?)?;
     m.add_function(wrap_pyfunction!(record_hash, m)?)?;
     m.add_function(wrap_pyfunction!(tax_report, m)?)?;

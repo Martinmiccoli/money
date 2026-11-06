@@ -38,7 +38,8 @@ pub enum Side {
 }
 
 /// Richiesta di ordine prima dei controlli dei guardrails.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct OrderRequest {
     pub instrument: String,
     pub asset_class: AssetClass,
@@ -58,7 +59,8 @@ pub struct OrderRequest {
 }
 
 /// Fotografia del portafoglio al momento del controllo.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PortfolioSnapshot {
     pub equity_eur: f64,
     pub cash_eur: f64,
@@ -70,7 +72,8 @@ pub struct PortfolioSnapshot {
     pub data_age_hours: f64,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Position {
     pub asset_class: AssetClass,
     pub value_eur: f64,

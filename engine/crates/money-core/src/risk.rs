@@ -6,7 +6,7 @@
 
 use crate::config::GuardrailsConfig;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum RiskState {
     /// Operatività normale.
     Active,
@@ -23,7 +23,7 @@ pub struct RiskMachine {
 }
 
 /// Evento prodotto da una transizione, da scrivere nel ledger.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub enum RiskEvent {
     SoftStopTriggered { equity_eur: f64, drawdown_pct: f64 },
     KillSwitchTriggered { equity_eur: f64, loss_pct: f64 },

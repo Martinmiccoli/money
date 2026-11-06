@@ -1,0 +1,32 @@
+# Parametri della validazione (docs/02-progettazione/validazione.md, 3.6).
+# Fissati PRIMA di guardare i risultati. Modificarli dopo aver visto un backtest è data snooping:
+# ogni modifica va committata con la motivazione.
+
+# Dati disponibili: 2016-01-04 → 2026-11-06. L'ultimo ~20% è hold-out: si usa UNA volta sola,
+# al Gate 0. Il simulatore rifiuta di entrarci senza un flag esplicito, e ogni accesso è registrato.
+research_start = "2016-01-04"
+holdout_start = "2024-09-02"
+
+# Orario della decisione (Europe/Rome): si usano solo i dati con available_at precedente (G-11).
+decision_time = "09:00"
+
+# Dopo un soft stop (G-01) nel backtest si assume la ripartenza dopo N giorni di borsa (conservativo).
+resume_after_days = 20
+
+# Il benchmark è fissato a priori: ETF UCITS azionario globale ad accumulo, con piano di accumulo.
+benchmark_instrument = "all_world"
+
+# Il proxy USA rende più dell'ETF UCITS reale: dividendi USA lordi reinvestiti (l'UCITS irlandese
+# subisce il 15% di ritenuta su un rendimento da dividendi ~1,8% => ~0,27%/anno) e TER più basso
+# (VT 0,06% contro VWCE 0,19%). Si sottrae un costo annuo stimato, così il backtest non è ottimista.
+# ⚠️ STIME: da affinare confrontando il proxy con lo storico dell'UCITS quando disponibile.
+[proxy_drag_bps_per_year]
+all_world = 40
+world_equity = 40
+us_equity = 30
+default = 30
+
+# Rendimento atteso dichiarato per il piano di accumulo (G-06 lo richiede per ogni acquisto).
+# Premio al rischio azionario di lungo periodo: è un'ipotesi, non una previsione.
+[benchmark]
+expected_edge_pct = 4.0

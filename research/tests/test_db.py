@@ -46,3 +46,30 @@ def test_bar_constraints(conn):
             "INSERT INTO market.bar_1d (instrument_id,date,source,currency,open,high,low,close,available_at) "
             "VALUES ('us_equity','1990-01-01','test','USD',1,1,2,1,now())"
         )
+
+
+@pytest.mark.db
+def test_registro_esperimenti_append_only(conn):
+    from money_research.backtest import registry
+
+    db.migrate(conn)
+    # Tutto in una transazione annullata: il registro vero non si sporca (non si può più pulire).
+    with conn.transaction(force_rollback=True):
+        args = dict(
+            family="test-famiglia",
+            strategy="s",
+            config={"x": float("nan")},
+            data_snapshot="abc",
+            period=(date(2020, 1, 1), date(2020, 12, 31)),
+            uses_holdout=False,
+            metrics={"sharpe_daily": 0.05},
+        )
+        _, n1 = registry.record(conn, **args)
+        _, n2 = registry.record(conn, **{**args, "metrics": {"sharpe_daily": 0.07}})
+        assert (n1, n2) == (1, 2)
+        stats = registry.family_stats(conn, "test-famiglia")
+        assert stats.n_trials == 2 and stats.var_sharpe_daily == pytest.approx(0.0002)
+        assert registry.register_holdout_access(conn, "test-famiglia", "test", "prova") == 1
+        assert registry.register_holdout_access(conn, "test-famiglia", "test", "prova") == 2
+        with pytest.raises(psycopg.errors.RaiseException, match="append-only"), conn.transaction():
+            conn.execute("DELETE FROM research.experiment WHERE family='test-famiglia'")
