@@ -129,6 +129,8 @@ def cmd_chart(args) -> None:
     bars["px_eur"] = bars["px"].where(bars["ccy"] == "EUR", bars["px"] / bars["eurusd"])
     wide = bars.pivot_table(index="date", columns="id", values="px_eur").dropna(how="all")
     wide = wide.loc[wide.dropna().index.min() :] if not wide.dropna().empty else wide
+    # Le crypto quotano anche nel weekend: per gli ETF si tiene l'ultimo prezzo noto (solo passato).
+    wide = wide.ffill()
     norm = wide / wide.iloc[0] * 100
     out_dir = REPO_ROOT / "reports" / "charts"
     out_dir.mkdir(parents=True, exist_ok=True)
