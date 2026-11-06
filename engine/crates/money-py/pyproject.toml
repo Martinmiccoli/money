@@ -12,3 +12,14 @@ description = "Binding Python di money-core"
 features = []
 module-name = "money_py._core"
 python-source = "python"
+
+# uv ricompila il binding quando cambia il codice Rust (suo o di money-core).
+[tool.uv]
+cache-keys = [
+    { file = "pyproject.toml" },
+    { file = "Cargo.toml" },
+    { file = "src/**/*.rs" },
+    { file = "python/**/*.py" },
+    { file = "../money-core/Cargo.toml" },
+    { file = "../money-core/src/**/*.rs" },
+]

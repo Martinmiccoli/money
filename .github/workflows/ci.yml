@@ -39,13 +39,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@stable   # uv sync compila money-py (binding PyO3)
       - run: uv sync
       - run: uv run ruff check .
       - run: uv run ruff format --check .
-      # Binding money-core (PyO3): i test in tests/test_money_py.py lo richiedono.
-      - run: uv pip install ../engine/crates/money-py
-      - run: uv run --no-sync pytest -q
+      - run: uv run pytest -q
 
   secrets:   # G-14
     runs-on: ubuntu-latest

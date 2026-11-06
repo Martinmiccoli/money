@@ -24,8 +24,8 @@ Quando l'utente chiede di fisco:
 - chiudi sempre ricordando che serve la verifica di un commercialista prima di qualsiasi dichiarazione.
 
 ## Stack e comandi
-- Rust (`engine/`): non è installato in locale, si usa Docker:
-  `docker run --rm -v "$PWD":/w -w /w/engine -e CARGO_HOME=/w/.cache/cargo -e CARGO_TARGET_DIR=/w/.cache/target rust:1-slim cargo test`
+- Rust (`engine/`): installato in locale con rustup (`~/.cargo/bin`). `cd engine && cargo test` · `cargo clippy --workspace --all-targets -- -D warnings` · `cargo fmt`
+- Binding `money_py` (PyO3): dipendenza di `research/`, `uv sync` lo ricompila quando cambia il codice Rust
 - Python (`research/`): uv, Python 3.12. `cd research && uv run pytest` (con `TEST_DATABASE_URL` girano anche i test sul DB)
 - DB locale: `docker compose -f infra/docker-compose.yml --env-file .env up -d` (Postgres + Timescale su 127.0.0.1:5433)
 - Dati: `cd research && uv run money ingest all` · `uv run money status` · `uv run money chart`

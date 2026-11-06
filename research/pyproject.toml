@@ -9,7 +9,12 @@ dependencies = [
     "python-dotenv>=1.0",
     "pandas>=2.2",
     "matplotlib>=3.9",
+    "money-py",
 ]
+
+# money-py = binding PyO3 di money-core (engine/). Serve Rust installato (rustup).
+[tool.uv.sources]
+money-py = { path = "../engine/crates/money-py" }
 
 [project.scripts]
 money = "money_research.cli:main"
