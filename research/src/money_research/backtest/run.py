@@ -299,6 +299,10 @@ def m4_report(conn: psycopg.Connection, out_dir: Path | None = None) -> tuple[Pa
         for cap in M4_CAPITALS:
             rs = [r for r in runs if r.extra["capital"] == cap]
             mat = np.column_stack([r.metrics["_returns"].to_numpy() for r in rs])
+            # Varianti con rendimenti praticamente identici (es. tutte ferme in liquidità): PBO non definito.
+            if np.abs(mat - mat[:, :1]).max() < 1e-6:
+                pbo[(family, cap)] = None
+                continue
             try:
                 pbo[(family, cap)] = M.pbo(mat)
             except ValueError:

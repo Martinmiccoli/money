@@ -204,6 +204,11 @@ ASSUMPTIONS_M4 = [
     "giorno (G-07); i pesi si inseguono per 5 giorni di borsa dopo il ribilanciamento.",
     "Interessi sulla liquidità al tasso €STR quando positivo, tassati al 26%; bollo 0,2% annuo; imposte al "
     "realizzo trattenute come farebbe il broker; liquidazione finale inclusa nel CAGR netto.",
+    "Sharpe con rf = €STR: tra il 2016 e il 2022 l'€STR era negativo, quindi una variante che resta in "
+    "liquidità ha uno Sharpe (e un DSR) positivo senza fare nulla. Per questo la 'migliore variante' si sceglie "
+    "solo tra quelle con almeno 30 ordini.",
+    "PBO 'n/d': le varianti della famiglia hanno rendimenti praticamente identici (es. tutte ferme in "
+    "liquidità), quindi la probabilità di overfitting non è definita.",
 ]
 
 
@@ -212,9 +217,20 @@ def _codes(run: Run, top: int = 3) -> str:
     return ", ".join(f"{k}×{v}" for k, v in c.most_common(top)) or "—"
 
 
+MIN_TRADES = 30  # soglia del Gate 0: sotto, la statistica non è affidabile
+
+
 def _best(runs: list[Run], capital) -> Run:
+    """Migliore per Sharpe tra le varianti che operano davvero (≥ 30 ordini).
+
+    Una variante che resta in liquidità non è una strategia: con l'€STR negativo (2016-2022) la
+    liquidità a 0% ha perfino uno Sharpe positivo. Se nessuna opera abbastanza, si sceglie la più attiva.
+    """
     rs = [r for r in runs if r.extra["capital"] == capital]
-    return max(rs, key=lambda r: r.metrics["sharpe"] if math.isfinite(r.metrics["sharpe"]) else -9)
+    active = [r for r in rs if r.metrics["n_trades"] >= MIN_TRADES]
+    if not active:
+        return max(rs, key=lambda r: r.metrics["n_trades"])
+    return max(active, key=lambda r: r.metrics["sharpe"] if math.isfinite(r.metrics["sharpe"]) else -9)
 
 
 def _chart_research(families: dict[str, list[Run]], benchmark: dict, path: Path, capitals) -> None:
@@ -264,6 +280,12 @@ def write_research(path: Path, *, families: dict[str, list[Run]], benchmark: dic
             best = _best(runs, cap)
             m = best.metrics
             beats = "batte" if m["excess_cagr"] > 0 else "**non batte**"
+            if m["n_trades"] < MIN_TRADES:
+                L.append(
+                    f"  - {FAMILY_TITLES[fam]}: **non riesce a operare** (al massimo {m['n_trades']} ordini in "
+                    f"{m['years']:.0f} anni): i guardrails G-05/G-06 bloccano ordini troppo piccoli rispetto ai costi."
+                )
+                continue
             L.append(
                 f"  - {FAMILY_TITLES[fam]} (migliore: {best.label}): CAGR {pct(m['cagr'])}, Sharpe {num(m['sharpe'])}, "
                 f"drawdown {pct(m['max_drawdown'])}, {m['n_trades']} ordini — {beats} il benchmark "
