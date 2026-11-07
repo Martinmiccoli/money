@@ -19,7 +19,7 @@ Ogni milestone finisce con test verdi e una demo funzionante.
 | **M3** ✅ | Simulatore + metriche | backtest event-driven, DSR, PBO, registro G-12, report di validazione | primo report: **benchmark piano di accumulo** |
 | **M4** ✅ (esito negativo) | Prime strategie | S3 trend + S4 rotazione + S8 regime (solo ETF: i dati più semplici) | Gate 0 sulle strategie ETF |
 | **M5** | Insider | ingest Form 4 + S1 + filtri | Gate 0 su S1 |
-| **M6** | Paper trading | `money-engine` + SimBroker + AlpacaPaper, scheduler, heartbeat | **inizio del Gate 1** (3-6 mesi) |
+| **M6** ✅ (avviato il 2026-11-07) | Paper trading | `money-engine` + SimBroker + AlpacaPaper, scheduler, heartbeat | **inizio del Gate 1** (3-6 mesi) |
 | **M7** | Webapp e notifiche | API Hono, PWA, bot Telegram, flusso proposte | proposte sul telefono |
 | **M8** | Sentiment | GDELT, Wikipedia, FinBERT, S6 (veto e feature), laboratorio crypto | Gate 0 sui filtri |
 | **M9** | Deploy | VM Oracle, Cloudflare Tunnel, backup, watchdog | sistema acceso 24/7 |

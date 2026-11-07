@@ -25,7 +25,11 @@ def code_version() -> str:
         ).stdout.strip()
         dirty = subprocess.run(
             # -uno: i file non tracciati (es. report appena generati) non rendono "dirty" il codice
-            ["git", "status", "--porcelain", "-uno"], cwd=REPO_ROOT, capture_output=True, text=True, check=True
+            ["git", "status", "--porcelain", "-uno"],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            check=True,
         ).stdout.strip()
         return sha + ("-dirty" if dirty else "")
     except (OSError, subprocess.CalledProcessError):

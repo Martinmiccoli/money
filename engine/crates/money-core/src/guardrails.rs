@@ -107,6 +107,33 @@ fn finite_nonneg(v: f64) -> bool {
     v.is_finite() && v >= 0.0
 }
 
+/// Ordine che ha superato i guardrails.
+///
+/// Il campo è privato e non esiste un costruttore pubblico: l'**unico** modo per ottenere un
+/// `CheckedOrder` è [`check`]. Gli adapter di esecuzione accettano solo questo tipo, quindi è il
+/// compilatore a garantire che nessun ordine salti i guardrails (3.5).
+#[derive(Debug, Clone)]
+pub struct CheckedOrder {
+    order: OrderRequest,
+}
+
+impl CheckedOrder {
+    pub fn order(&self) -> &OrderRequest {
+        &self.order
+    }
+}
+
+/// Come [`check_order`], ma restituisce l'ordine "certificato" da passare all'esecuzione.
+pub fn check(
+    cfg: &GuardrailsConfig,
+    risk: RiskState,
+    pf: &PortfolioSnapshot,
+    o: OrderRequest,
+) -> Result<CheckedOrder, Vec<Violation>> {
+    check_order(cfg, risk, pf, &o)?;
+    Ok(CheckedOrder { order: o })
+}
+
 /// Controlla un ordine contro tutti i guardrails. Restituisce **tutte** le violazioni trovate.
 pub fn check_order(
     cfg: &GuardrailsConfig,

@@ -1,0 +1,30 @@
+# Conti di paper trading (M6, Gate 1). Soldi finti: nessun ordine reale (G-17).
+# docs/03-system-design/05-esecuzione-hybrid.md: un conto da 50 € (la realtà) e uno da 1.000 €.
+#
+# Nota onesta: la M4 non ha promosso nessuna strategia ETF. Questi conti servono a collaudare il
+# motore e a confrontare paper e backtest; il piano di accumulo da 50 € è l'unico candidato reale.
+
+[[account]]
+id = "paper-50"
+strategy = "savings_plan"            # core: piano di accumulo sull'ETF globale
+initial_deposit_eur = 50
+monthly_deposit_eur = 0
+notes = "La realtà di oggi: 50 € nel piano di accumulo"
+
+[[account]]
+id = "paper-1000"
+strategy = "s3s4_s8"                 # S3 + S4 con regime S8 (design 3.2); nella M4 opera pochissimo
+initial_deposit_eur = 1000
+monthly_deposit_eur = 0
+notes = "Satellite ETF del design: verifica come si comporta dal vivo con i guardrails"
+
+[[account]]
+id = "paper-10000"
+strategy = "s3_monthly_equal"        # diagnostica: la variante S3 che nella M4 opera di più
+initial_deposit_eur = 10000
+monthly_deposit_eur = 0
+notes = "Diagnostica: abbastanza capitale da generare ordini, per collaudare il motore"
+
+[alpaca_shadow]
+# Copia ogni ordine su Alpaca Paper per confrontare il fill simulato con uno reale (solo azioni/ETF USA).
+enabled = true

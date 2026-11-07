@@ -57,3 +57,17 @@ Dopo l'acquisto imposta lo STOP a: — (ETF core, nessuno stop)
 ## Paper trading (Gate 1)
 - Tutto in automatico: `SimBroker` per tutti gli strumenti; in parallelo `AlpacaPaper` sulle azioni USA, per misurare la differenza tra fill simulato e fill "quasi reale".
 - Capitale simulato: due conti paper in parallelo, uno da **50 €** (realtà) e uno da **1.000 €** (per validare i satellite che con 50 € non si attivano).
+
+## Implementazione del paper trading (M6, 2026-11-07)
+| Passo | Chi | Cosa |
+|---|---|---|
+| 1. ingest | Python | prezzi, cambi e tassi del giorno |
+| 2. feed | Python (`paper/feed.py`) | prezzo "UCITS sintetico" in EUR, **append-only**: si salva solo il rendimento del giorno, così le serie rettificate riscritte dopo un dividendo non alterano le valutazioni già fatte |
+| 3. `money-engine settle` | Rust | SimBroker: esegue gli ordini all'apertura del giorno previsto con i costi di Trade Republic; poi versamenti, interessi (€STR, 26%) e bollo |
+| 4. decide | Python (`paper/runner.py`) | stesse strategie del backtest; lo stato (es. stima dell'edge) è scaldato sulla storia senza simulare P&L e salvato ogni giorno |
+| 5. `money-engine execute` | Rust | ogni intenzione passa da `guardrails::check` → `CheckedOrder` (costruttore privato) → ordine SimBroker + copia ombra su **Alpaca Paper** (solo confronto dei fill); valutazione e macchina del rischio |
+
+- **G-17:** il motore rifiuta di partire se `mode` non è `paper`, e il client Alpaca accetta solo l'endpoint `paper-api`.
+- **Idempotenza:** una decisione al giorno per conto. Se ci sono ordini in attesa la decisione si rimanda. Gli eventi di cassa si registrano solo a ordini chiusi, così le date del ledger restano in ordine.
+- **Conti:** `config/paper.toml` (50 €, 1.000 €, 10.000 € di diagnostica). Schedulazione su Mac con `infra/paper/com.money.paper.plist`; sulla VM con cron (M9).
+- **Soft stop:** nel paper la ripartenza non è automatica (come nel live). Il comando di ripartenza manuale arriverà con la webapp (M7).

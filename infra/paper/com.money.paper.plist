@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Paper trading giornaliero (M6): lun-ven alle 9:05. Se il Mac dorme, launchd lo esegue al risveglio.
+     Installazione:  cp infra/paper/com.money.paper.plist ~/Library/LaunchAgents/ && launchctl load ~/Library/LaunchAgents/com.money.paper.plist
+     Rimozione:      launchctl unload ~/Library/LaunchAgents/com.money.paper.plist && rm ~/Library/LaunchAgents/com.money.paper.plist -->
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.money.paper</string>
+  <key>ProgramArguments</key>
+  <array><string>/bin/bash</string><string>/Users/martinmiccoli/money/infra/paper/run-day.sh</string></array>
+  <key>StartCalendarInterval</key>
+  <array>
+    <dict><key>Weekday</key><integer>1</integer><key>Hour</key><integer>9</integer><key>Minute</key><integer>5</integer></dict>
+    <dict><key>Weekday</key><integer>2</integer><key>Hour</key><integer>9</integer><key>Minute</key><integer>5</integer></dict>
+    <dict><key>Weekday</key><integer>3</integer><key>Hour</key><integer>9</integer><key>Minute</key><integer>5</integer></dict>
+    <dict><key>Weekday</key><integer>4</integer><key>Hour</key><integer>9</integer><key>Minute</key><integer>5</integer></dict>
+    <dict><key>Weekday</key><integer>5</integer><key>Hour</key><integer>9</integer><key>Minute</key><integer>5</integer></dict>
+  </array>
+  <key>StandardErrorPath</key><string>/Users/martinmiccoli/money/data/logs/launchd.err</string>
+</dict>
+</plist>

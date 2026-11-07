@@ -214,7 +214,10 @@ impl Portfolio {
             }
             Event::RiskStateChanged { .. }
             | Event::ConfigChanged { .. }
-            | Event::Reconciliation { .. } => Ok(None),
+            | Event::Reconciliation { .. }
+            | Event::OrderSubmitted { .. }
+            | Event::OrderRejected { .. }
+            | Event::OrderExpired { .. } => Ok(None),
         }
     }
 

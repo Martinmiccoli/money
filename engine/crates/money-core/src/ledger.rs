@@ -24,7 +24,7 @@ use crate::{
 /// `prev_hash` del primo evento di ogni conto.
 pub const GENESIS_HASH: &str = "0000000000000000000000000000000000000000000000000000000000000000";
 
-/// Eventi contabili. Gli eventi del flusso delle proposte (3.5) si aggiungeranno nella M6/M7.
+/// Eventi del ledger: contabili e del ciclo di vita degli ordini (3.5).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", deny_unknown_fields)]
 pub enum Event {
@@ -100,6 +100,36 @@ pub enum Event {
         ok: bool,
         detail: String,
     },
+    /// Ordine che ha superato i guardrails e passato all'adapter di esecuzione.
+    OrderSubmitted {
+        order_id: String,
+        instrument: String,
+        side: Side,
+        /// Acquisti: contanti da impiegare (commissioni incluse). Vendite: None.
+        #[serde(default)]
+        notional_eur: Option<Decimal>,
+        /// Vendite: quantità. Acquisti: None.
+        #[serde(default)]
+        qty: Option<Decimal>,
+        /// "regular" | "savings_plan"
+        order_kind: String,
+        adapter: String,
+        #[serde(default)]
+        expected_edge_pct: Option<Decimal>,
+        reason: String,
+    },
+    /// Ordine bloccato dai guardrails (codici G-xx).
+    OrderRejected {
+        instrument: String,
+        side: Side,
+        codes: Vec<String>,
+        detail: String,
+    },
+    /// Ordine non eseguito entro la scadenza (es. nessuna quotazione).
+    OrderExpired {
+        order_id: String,
+        reason: String,
+    },
 }
 
 impl Event {
@@ -115,6 +145,9 @@ impl Event {
             Event::RiskStateChanged { .. } => "RiskStateChanged",
             Event::ConfigChanged { .. } => "ConfigChanged",
             Event::Reconciliation { .. } => "Reconciliation",
+            Event::OrderSubmitted { .. } => "OrderSubmitted",
+            Event::OrderRejected { .. } => "OrderRejected",
+            Event::OrderExpired { .. } => "OrderExpired",
         }
     }
 }

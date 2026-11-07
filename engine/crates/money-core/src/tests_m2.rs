@@ -796,3 +796,50 @@ fn fisco_interessi_sulla_liquidita_al_26() {
         dec!(10000) - dec!(50) + dec!(10)
     );
 }
+
+#[test]
+fn checked_order_solo_dai_guardrails() {
+    use crate::{
+        config::GuardrailsConfig,
+        guardrails::check,
+        risk::RiskState,
+        types::{OrderRequest, PortfolioSnapshot},
+    };
+    let cfg = GuardrailsConfig::from_toml_str(include_str!("../../../../config/guardrails.toml"))
+        .unwrap();
+    let pf = PortfolioSnapshot {
+        equity_eur: 100.0,
+        cash_eur: 100.0,
+        data_age_hours: 1.0,
+        ..Default::default()
+    };
+    let o = OrderRequest {
+        instrument: "x".into(),
+        asset_class: AssetClass::EtfUcits,
+        side: Side::Buy,
+        notional_eur: 50.0,
+        est_cost_eur: 0.03,
+        expected_edge_pct: Some(1.0),
+        ref_price: 10.0,
+        limit_price: None,
+        valid_for_hours: None,
+    };
+    let ok = check(&cfg, RiskState::Active, &pf, o.clone()).unwrap();
+    assert_eq!(ok.order().notional_eur, 50.0);
+    assert!(check(&cfg, RiskState::Locked, &pf, o).is_err());
+}
+
+#[test]
+fn eventi_degli_ordini_non_toccano_il_portafoglio() {
+    let l = sample().ok(
+        d(2026, 1, 9),
+        Event::OrderRejected {
+            instrument: "etf".into(),
+            side: Side::Buy,
+            codes: vec!["G-10".into()],
+            detail: "dati vecchi".into(),
+        },
+    );
+    assert_eq!(l.ledger.portfolio().cash_eur, dec!(49));
+    verify_chain(l.records()).unwrap();
+}

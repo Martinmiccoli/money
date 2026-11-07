@@ -10,6 +10,8 @@ money status                   copertura dei dati e ultime esecuzioni
 money chart [id ...]           grafico dei prezzi in EUR (base 100) in reports/charts/
 money backtest benchmark       report del benchmark (piano di accumulo) in reports/validation/
 money backtest m4              strategie ETF S3/S4/S8: griglia a priori, registro G-12, report
+money paper run-day            giornata di paper trading: ingest → feed → settle → decide → execute
+money paper status             riepilogo dei conti paper (Gate 1)
 """
 
 from __future__ import annotations
@@ -178,6 +180,60 @@ def cmd_backtest_m4(args) -> None:
     print(f"sha256: {sha}")
 
 
+def cmd_paper_run_day(args) -> None:
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    from .backtest.run import load_validation
+    from .paper import feed as pfeed
+    from .paper import runner
+
+    now = datetime.fromisoformat(args.now) if args.now else datetime.now(ZoneInfo("Europe/Rome"))
+    if now.tzinfo is None:
+        sys.exit("--now deve includere il fuso orario, es. 2026-11-09T09:00:00+01:00")
+    if not args.skip_ingest:
+        cmd_all(args)
+    accounts = runner.load_accounts()
+    val = load_validation()
+    with _conn() as c, db.ingest_run(c, "paper_day") as run:
+        db.migrate(c)
+        new = runner.sync_accounts(c, accounts, now.astimezone(runner.ROME).date())
+        if new:
+            print(f"conti paper creati: {new}")
+        first = c.execute("SELECT min(started_on) FROM paper.account").fetchone()[0]
+        added = pfeed.update_feed(
+            c,
+            runner.all_instruments(accounts),
+            pfeed.default_anchor(first),
+            val["proxy_drag_bps_per_year"],
+            set(val["fx_hedged"]),
+        )
+        print(f"feed prezzi EUR: {added} righe nuove")
+        print(runner.engine("settle", now))
+        for acct, msg in runner.decide(c, accounts, now).items():
+            print(f"decisione {acct}: {msg}")
+        print(runner.engine("execute", now))
+        run["rows"] = added
+
+
+def cmd_paper_status(args) -> None:
+    from .paper import runner
+
+    with _conn() as c:
+        rows = runner.status_rows(c)
+    if not rows:
+        print("nessun conto paper: esegui `money paper run-day`")
+        return
+    for r in rows:
+        val = f"{r['valore']:.2f} €" if r["valore"] is not None else "—"
+        ret = f"{r['rendimento'] * 100:+.2f}%" if r["rendimento"] is not None else "—"
+        print(
+            f"{r['conto']:<12} {r['strategia']:<18} dal {r['dal']}  giorni {r['giorni']:>3}  valore {val:>12}  "
+            f"rendimento {ret:>8}  max DD {r['max_dd'] * 100:6.2f}%  eseguiti {r['eseguiti']:>3}  "
+            f"rischio {r['rischio']}  rifiuti: {r['rifiutati']}"
+        )
+
+
 def main(argv: list[str] | None = None) -> None:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     p = argparse.ArgumentParser(prog="money", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -200,6 +256,12 @@ def main(argv: list[str] | None = None) -> None:
     bt = sub.add_parser("backtest").add_subparsers(dest="sub", required=True)
     bt.add_parser("benchmark").set_defaults(fn=cmd_backtest_benchmark)
     bt.add_parser("m4").set_defaults(fn=cmd_backtest_m4)
+    pp = sub.add_parser("paper").add_subparsers(dest="sub", required=True)
+    rd = pp.add_parser("run-day")
+    rd.add_argument("--now", help="istante della decisione (ISO con fuso), per recuperi e test")
+    rd.add_argument("--skip-ingest", action="store_true", help="non riscaricare i dati")
+    rd.set_defaults(fn=cmd_paper_run_day, start=None, end=None)
+    pp.add_parser("status").set_defaults(fn=cmd_paper_status)
 
     args = p.parse_args(argv)
     try:

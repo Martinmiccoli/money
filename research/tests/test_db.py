@@ -73,3 +73,47 @@ def test_registro_esperimenti_append_only(conn):
         assert registry.register_holdout_access(conn, "test-famiglia", "test", "prova") == 2
         with pytest.raises(psycopg.errors.RaiseException, match="append-only"), conn.transaction():
             conn.execute("DELETE FROM research.experiment WHERE family='test-famiglia'")
+
+
+@pytest.mark.db
+def test_feed_paper_rendimenti_concatenati_e_append_only(conn):
+    """Il feed salva solo il rendimento del giorno: un dividendo che riscrive lo storico rettificato
+    non cambia i prezzi già salvati. Tutto in una transazione annullata."""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    from money_research.paper.feed import update_feed
+
+    db.migrate(conn)
+    ny = ZoneInfo("America/New_York")
+    with conn.transaction(force_rollback=True):
+        conn.execute(
+            "INSERT INTO ref.instrument (instrument_id, name, asset_class, currency, tax_category)"
+            " VALUES ('test_etf','t','etf_ucits','EUR','RC')"
+        )
+
+        def bar(d, close, adj):
+            conn.execute(
+                """INSERT INTO market.bar_1d (instrument_id, date, source, currency, open, high, low, close,
+                                              adj_close, volume, available_at)
+                   VALUES ('test_etf',%s,'test','EUR',%s,%s,%s,%s,%s,0,%s)""",
+                (d, close, close, close, close, adj, datetime(d.year, d.month, d.day, 17, tzinfo=ny)),
+            )
+
+        bar(date(2026, 1, 5), 100, 100)
+        bar(date(2026, 1, 6), 110, 110)
+        n = update_feed(conn, ["test_etf"], date(2026, 1, 5), {"test_etf": 0}, set())
+        assert n == 2
+        # Dividendo: lo storico rettificato viene riscritto (−2%), poi arriva il 7/1.
+        conn.execute("UPDATE market.bar_1d SET adj_close = adj_close * 0.98 WHERE instrument_id='test_etf'")
+        bar(date(2026, 1, 7), 99, 99 * 1.0)  # chiusura 99 dopo uno stacco di 2,2 (adj = 99)
+        update_feed(conn, ["test_etf"], date(2026, 1, 5), {"test_etf": 0}, set())
+        rows = conn.execute(
+            "SELECT date, close_eur FROM paper.price_eur WHERE instrument_id='test_etf' ORDER BY date"
+        ).fetchall()
+        closes = [float(r[1]) for r in rows]
+        assert closes[:2] == [100.0, 110.0]  # i prezzi già salvati non cambiano
+        # rendimento del 7/1 = 99 / (110 × 0,98) − 1, applicato al prezzo salvato del 6/1
+        assert closes[2] == pytest.approx(110 * 99 / (110 * 0.98), rel=1e-6)
+        with pytest.raises(psycopg.errors.RaiseException, match="append-only"), conn.transaction():
+            conn.execute("UPDATE paper.price_eur SET close_eur = 1 WHERE instrument_id='test_etf'")

@@ -29,5 +29,7 @@ Quando l'utente chiede di fisco:
 - Python (`research/`): uv, Python 3.12. `cd research && uv run pytest` (con `TEST_DATABASE_URL` girano anche i test sul DB)
 - DB locale: `docker compose -f infra/docker-compose.yml --env-file .env up -d` (Postgres + Timescale su 127.0.0.1:5433)
 - Dati: `cd research && uv run money ingest all` · `uv run money status` · `uv run money chart`
+- Backtest: `uv run money backtest benchmark` · `uv run money backtest m4` (ogni esecuzione finisce nel registro G-12)
+- Paper trading (M6): `uv run money paper run-day` · `uv run money paper status` · motore: `engine/target/release/money-engine settle|execute|status` · automatico: `infra/paper/run-day.sh` (launchd)
 - TypeScript (`web/`): Node
 - Branch di lavoro: `dev`. Commit in italiano.

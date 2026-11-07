@@ -1,8 +1,8 @@
 [workspace]
 resolver = "2"
-members = ["crates/money-core", "crates/money-py"]
+members = ["crates/money-core", "crates/money-py", "crates/money-engine"]
 # `cargo test` senza argomenti prova solo money-core: money-py si compila con maturin.
-default-members = ["crates/money-core"]
+default-members = ["crates/money-core", "crates/money-engine"]
 
 [workspace.package]
 edition = "2021"
