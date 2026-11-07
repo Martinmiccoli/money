@@ -26,8 +26,8 @@ Q = Decimal("0.00000001")
 def _bars(conn: psycopg.Connection, instrument: str) -> pd.DataFrame:
     df = pd.DataFrame(
         conn.execute(
-            """SELECT date, open, close, adj_close, currency, available_at FROM market.bar_1d
-               WHERE instrument_id=%s ORDER BY date""",
+            """SELECT DISTINCT ON (date) date, open, close, adj_close, currency, available_at FROM market.bar_1d
+               WHERE instrument_id=%s ORDER BY date, (source = 'alpaca') DESC, source""",
             (instrument,),
         ).fetchall(),
         columns=["date", "open", "close", "adj_close", "currency", "available_at"],

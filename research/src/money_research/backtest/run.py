@@ -222,18 +222,30 @@ def m4_families() -> dict[str, list[tuple[str, Callable]]]:
     }
 
 
-def m4_report(conn: psycopg.Connection, out_dir: Path | None = None) -> tuple[Path, str]:
+def run_research(
+    conn: psycopg.Connection,
+    *,
+    families: dict[str, list[tuple[str, Callable]]],
+    ids: list[str],
+    start: date,
+    slug: str,
+    title: str,
+    family_titles: dict[str, str] | None = None,
+    assumptions: list[str] | None = None,
+    extra: list[tuple[str, str]] | None = None,
+    capitals: list[Decimal] = M4_CAPITALS,
+    out_dir: Path | None = None,
+) -> tuple[Path, str]:
+    """Griglia a priori → simulazioni → registro G-12 → PBO per famiglia → report di ricerca."""
     import numpy as np
 
     from .report import write_research
 
     val = load_validation()
     universe = {i.id: i for i in load_universe()}
-    ids = sorted({*S3_UNIVERSE, *_sectors(), "all_world", "global_bonds_hedged"})
-    md = load_market_data(conn, ids, val["proxy_drag_bps_per_year"], set(val["fx_hedged"]))
+    md = load_market_data(conn, ids, val["proxy_drag_bps_per_year"], set(val["fx_hedged"]), extra)
     end = max(d for d in md.calendar if d < val["holdout_start"])
-    # Un anno di storia serve ai segnali: si parte dal primo giorno di borsa del 2017, anche il benchmark.
-    start = min(d for d in md.calendar if d >= date(val["research_start"].year + 1, 1, 1))
+    start = min(d for d in md.calendar if d >= start)
 
     def simulate(strategy, capital: Decimal, family: str, label: str) -> Run:
         cfg = SimConfig(
@@ -269,7 +281,7 @@ def m4_report(conn: psycopg.Connection, out_dir: Path | None = None) -> tuple[Pa
             period=(cfg.start, cfg.end),
             uses_holdout=False,
             metrics=m,
-            notes=f"M4: {label}, capitale {capital} €",
+            notes=f"{slug}: {label}, capitale {capital} €",
         )
         m["_returns"] = M.twr_returns(res.daily, liq)
         m["_strategy_stats"] = dict(getattr(strategy, "stats", {}))
@@ -282,21 +294,21 @@ def m4_report(conn: psycopg.Connection, out_dir: Path | None = None) -> tuple[Pa
             "benchmark",
             "benchmark",
         )
-        for cap in M4_CAPITALS
+        for cap in capitals
     }
-    families: dict[str, list[Run]] = {}
-    for family, variants in m4_families().items():
-        for cap in M4_CAPITALS:
+    results: dict[str, list[Run]] = {}
+    for family, variants in families.items():
+        for cap in capitals:
             for label, make in variants:
                 run = simulate(make(), cap, family, label)
                 b = bench[cap].metrics
                 run.metrics["benchmark_cagr"] = b["cagr"]
                 run.metrics["excess_cagr"] = run.metrics["cagr"] - b["cagr"]
-                families.setdefault(family, []).append(run)
+                results.setdefault(family, []).append(run)
 
     pbo: dict[tuple[str, Decimal], float | None] = {}
-    for family, runs in families.items():
-        for cap in M4_CAPITALS:
+    for family, runs in results.items():
+        for cap in capitals:
             rs = [r for r in runs if r.extra["capital"] == cap]
             mat = np.column_stack([r.metrics["_returns"].to_numpy() for r in rs])
             # Varianti con rendimenti praticamente identici (es. tutte ferme in liquidità): PBO non definito.
@@ -307,15 +319,15 @@ def m4_report(conn: psycopg.Connection, out_dir: Path | None = None) -> tuple[Pa
                 pbo[(family, cap)] = M.pbo(mat)
             except ValueError:
                 pbo[(family, cap)] = None
-    for runs in families.values():
+    for runs in results.values():
         for r in runs:
             r.metrics["pbo"] = pbo[(r.extra["family"], r.extra["capital"])]
 
     out_dir = out_dir or REPO_ROOT / "reports" / "validation"
-    path = out_dir / f"{date.today()}-m4-strategie-etf.md"
+    path = out_dir / f"{date.today()}-{slug}.md"
     sha = write_research(
         path,
-        families=families,
+        families=results,
         benchmark=bench,
         context={
             "code_version": registry.code_version(),
@@ -323,5 +335,104 @@ def m4_report(conn: psycopg.Connection, out_dir: Path | None = None) -> tuple[Pa
             "holdout": f"dal {val['holdout_start']} — **non usato**",
             "data_snapshot": md.snapshot,
         },
+        title=title,
+        family_titles=family_titles,
+        assumptions=assumptions,
     )
     return path, sha
+
+
+def m4_report(conn: psycopg.Connection, out_dir: Path | None = None) -> tuple[Path, str]:
+    val = load_validation()
+    return run_research(
+        conn,
+        families=m4_families(),
+        ids=sorted({*S3_UNIVERSE, *_sectors(), "all_world", "global_bonds_hedged"}),
+        # Un anno di storia serve ai segnali: si parte dal primo giorno di borsa del 2017, anche il benchmark.
+        start=date(val["research_start"].year + 1, 1, 1),
+        slug="m4-strategie-etf",
+        title="M4 — Strategie su ETF: trend (S3), rotazione (S4), regime (S8)",
+        out_dir=out_dir,
+    )
+
+
+# ═════════════════════════ M8: sentiment (S6) ═════════════════════════
+# Griglia fissata A PRIORI (2026-11-07), prima di qualsiasi backtest su queste serie.
+
+M8_START = date(2018, 3, 1)  # Fear & Greed dal 2018-02-01; GDELT dal 2017 + un anno per lo z-score
+
+
+def m8_families() -> dict[str, list[tuple[str, Callable]]]:
+    from .strategies import CryptoSentimentSleeve, NarrativeRiskOff
+
+    def crypto(mode="fear_greed", low=25.0, high=75.0):
+        return CryptoSentimentSleeve(
+            name=f"core+BTC {mode} {low:.0f}/{high:.0f}",
+            rebalance="daily",
+            band_pct=0.05,
+            mode=mode,
+            low=low,
+            high=high,
+        )
+
+    def narrative(mode="narrative", z_off=2.0, z_on=1.0, sma=False):
+        return NarrativeRiskOff(
+            name=f"narrazione {mode} {z_off}/{z_on}{' +SMA' if sma else ''}",
+            rebalance="daily",
+            band_pct=0.05,
+            mode=mode,
+            z_off_at=z_off,
+            z_on_at=z_on,
+            use_sma=sma,
+        )
+
+    return {
+        "s6-crypto-lab": [
+            ("BTC sempre (riferimento)", lambda: crypto("hold")),
+            ("Fear & Greed 25/75", lambda: crypto("fear_greed", 25, 75)),
+            ("Fear & Greed 20/80", lambda: crypto("fear_greed", 20, 80)),
+            ("Fear & Greed 30/70", lambda: crypto("fear_greed", 30, 70)),
+        ],
+        "s6-narrative": [
+            ("ETF sempre (riferimento)", lambda: narrative("hold")),
+            ("z ≥ 2 esce, ≤ 1 rientra", lambda: narrative("narrative", 2.0, 1.0)),
+            ("z ≥ 1,5 esce, ≤ 0,5 rientra", lambda: narrative("narrative", 1.5, 0.5)),
+            ("z ≥ 2 / ≤ 1 + media 10 mesi", lambda: narrative("narrative", 2.0, 1.0, True)),
+        ],
+    }
+
+
+ASSUMPTIONS_M8 = [
+    "Periodo di ricerca dal 1° marzo 2018 (il Fear & Greed esiste dal febbraio 2018, GDELT dal 2017 più un anno "
+    "per lo z-score) fino all'inizio dell'hold-out, che resta intatto. Benchmark sullo stesso periodo.",
+    "Laboratorio crypto: 85% ETF globale (acquistato con piano di accumulo) + 14% ETP bitcoin (G-08: crypto ≤ 15%). "
+    "Prezzi BTC: Binance (BTCUSDT ≈ USD) fino al 2020, poi Alpaca; convertiti in EUR, 20 bp/anno di TER dell'ETP. "
+    "Tassazione dell'ETP: redditi diversi al 26% (knowledge/fisco/05).",
+    "Fear & Greed contrarian: si entra quando l'indice è ≤ soglia bassa, si esce quando è ≥ soglia alta; il valore "
+    "del giorno d è disponibile alle 01:00 UTC di d (prima della decisione delle 9:00).",
+    'Narrazione di crisi: volume GDELT (% degli articoli mondiali) della query \'(recession OR "stock market crash" '
+    "OR \"market crash\")', media a 20 giorni, z-score sull'ultimo anno; dato del giorno d disponibile alle 01:00 UTC "
+    "di d+1. Rifugio: obbligazioni globali coperte in EUR.",
+    "Segnali valutati ogni giorno con banda di non-trading del 5% del conto (oltre ai 50 €); edge (G-06) stimato "
+    "solo sul passato e dimezzato; costi Trade Republic, interessi sulla liquidità, imposte e bollo come nella M4.",
+    "Escluse da questa griglia (decisione presa prima dei risultati): attenzione Wikipedia (serve un contatto per "
+    "la policy Wikimedia) e tono delle notizie con FinBERT (serve a S1, non ancora implementato).",
+]
+
+
+def m8_report(conn: psycopg.Connection, out_dir: Path | None = None) -> tuple[Path, str]:
+    return run_research(
+        conn,
+        families=m8_families(),
+        ids=["all_world", "bitcoin_etp", "global_bonds_hedged"],
+        start=M8_START,
+        slug="m8-sentiment",
+        title="M8 — Sentiment (S6): laboratorio crypto e narrazione di crisi",
+        family_titles={
+            "s6-crypto-lab": "Laboratorio crypto — core + bitcoin temporizzato col Fear & Greed",
+            "s6-narrative": "Narrazione di crisi (GDELT) — ETF globale con uscita sulle obbligazioni",
+        },
+        assumptions=ASSUMPTIONS_M8,
+        extra=[("alternative_me", "fear_greed"), ("gdelt", "crash_narrative")],
+        out_dir=out_dir,
+    )

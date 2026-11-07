@@ -43,11 +43,21 @@ class Series:
 
 
 @dataclass
+class DailySeries:
+    """Serie non di prezzo (sentiment, attenzione) con la sua disponibilità (G-11)."""
+
+    dates: np.ndarray  # datetime64[D]
+    values: np.ndarray
+    available_at: np.ndarray  # datetime64[ns] UTC
+
+
+@dataclass
 class MarketData:
     series: dict[str, Series]
     rf: pd.DataFrame  # colonne: date, rate_pct (serie unica €STR / EONIA − 8,5 bp)
     snapshot: str = ""  # hash dei dati usati (riproducibilità, G-12)
     calendar: list[date] = field(default_factory=list)
+    extra: dict[str, DailySeries] = field(default_factory=dict)
 
     def view(self, decision_ts: datetime) -> PointInTimeView:
         return PointInTimeView(self, decision_ts)
@@ -86,6 +96,13 @@ class PointInTimeView:
         """Chiusure in EUR fino all'ultima disponibile (indice: data)."""
         s, i = self._idx(instrument)
         return pd.Series(s.close_eur[: i + 1], index=pd.to_datetime(s.dates[: i + 1]), name=instrument)
+
+    def series(self, name: str) -> pd.Series:
+        """Serie di sentiment/attenzione con i soli valori pubblicati prima della decisione."""
+        s = self._data.extra[name]
+        t = np.datetime64(pd.Timestamp(self.decision_ts).tz_convert("UTC").tz_localize(None), "ns")
+        mask = s.available_at < t
+        return pd.Series(s.values[mask], index=pd.to_datetime(s.dates[mask]), name=name)
 
     def data_age_hours(self, instrument: str) -> float:
         """Età del dato più recente disponibile (infinita se non c'è nulla): alimenta G-10."""
@@ -163,11 +180,16 @@ def load_market_data(
     instruments: list[str],
     drag_bps: dict[str, float] | None = None,
     fx_hedged: set[str] | frozenset[str] = frozenset(),
+    extra: list[tuple[str, str]] | None = None,
 ) -> MarketData:
     bars = pd.DataFrame(
         conn.execute(
-            """SELECT instrument_id, date, open, close, adj_close, currency, available_at
-               FROM market.bar_1d WHERE instrument_id = ANY(%s) ORDER BY date""",
+            # Una barra per giorno: si preferisce la fonte principale (Alpaca); le altre (es. Binance)
+            # servono solo a coprire lo storico precedente.
+            """SELECT DISTINCT ON (instrument_id, date)
+                      instrument_id, date, open, close, adj_close, currency, available_at
+               FROM market.bar_1d WHERE instrument_id = ANY(%s)
+               ORDER BY instrument_id, date, (source = 'alpaca') DESC, source""",
             (instruments,),
         ).fetchall(),
         columns=["instrument_id", "date", "open", "close", "adj_close", "currency", "available_at"],
@@ -183,4 +205,21 @@ def load_market_data(
         conn.execute("SELECT series, date, rate_pct FROM market.rate_1d ORDER BY date").fetchall(),
         columns=["series", "date", "rate_pct"],
     )
-    return build_market_data(bars, fx, rf, drag_bps, fx_hedged)
+    md = build_market_data(bars, fx, rf, drag_bps, fx_hedged)
+    for source, series_id in extra or []:
+        md.extra[series_id] = load_daily_series(conn, source, series_id)
+    return md
+
+
+def load_daily_series(conn: psycopg.Connection, source: str, series_id: str) -> DailySeries:
+    rows = conn.execute(
+        "SELECT date, value, available_at FROM raw.daily_series WHERE source=%s AND series_id=%s ORDER BY date",
+        (source, series_id),
+    ).fetchall()
+    if not rows:
+        raise ValueError(f"serie {source}/{series_id} vuota: esegui `money ingest sentiment`")
+    return DailySeries(
+        dates=np.array([r[0] for r in rows], dtype="datetime64[D]"),
+        values=np.array([r[1] for r in rows], dtype=float),
+        available_at=pd.to_datetime([r[2] for r in rows], utc=True).tz_localize(None).to_numpy(),
+    )

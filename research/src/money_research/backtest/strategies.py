@@ -98,7 +98,9 @@ class TargetWeightStrategy:
     """
 
     name: str = "target-weights"
-    rebalance: str = "monthly"  # "monthly" | "weekly"
+    rebalance: str = "monthly"  # "monthly" | "weekly" | "daily"
+    band_pct: float = 0.0  # banda relativa: si opera solo se |Δ| > band_pct × equity (oltre ai 50 €)
+    savings_plan_instruments: tuple[str, ...] = ()  # acquisti con piano di accumulo (0 € di commissione)
     min_order_eur: float = 50.0
     max_orders_per_day: int = 3
     pending_days: int = 5
@@ -114,6 +116,8 @@ class TargetWeightStrategy:
         raise NotImplementedError
 
     def _period_of(self, day) -> tuple:
+        if self.rebalance == "daily":
+            return (day.year, day.month, day.day)
         return (day.year, day.month) if self.rebalance == "monthly" else tuple(day.isocalendar()[:2])
 
     def decide(self, ctx: Context) -> list[OrderIntent]:
@@ -137,20 +141,21 @@ class TargetWeightStrategy:
         values = {i: float(q) * (px[i] or 0.0) for i, q in ctx.holdings.items()}
         sells, buys = [], []
         cash = ctx.cash_eur
+        band = max(self.min_order_eur, self.band_pct * equity)
         for inst, qty in ctx.holdings.items():
             t = self._targets.get(inst, 0.0)
             excess = values[inst] - t * equity
             if t == 0:
                 sells.append(OrderIntent(inst, "sell", qty=qty, reason="uscita: peso target zero"))
                 cash += values[inst] * 0.995 - 1
-            elif excess > self.min_order_eur and px[inst]:
+            elif excess > band and px[inst]:
                 sells.append(OrderIntent(inst, "sell", notional_eur=excess, reason="riduzione verso il target"))
                 cash += excess * 0.995 - 1
         deficits = sorted(
             ((t * equity - values.get(i, 0.0), i) for i, t in self._targets.items() if t > 0), reverse=True
         )
         for deficit, inst in deficits:
-            if deficit <= self.min_order_eur:
+            if deficit <= band:
                 continue
             edge = self._edges.get(inst)
             if edge is None or edge <= 0:
@@ -159,9 +164,15 @@ class TargetWeightStrategy:
             notional = min(deficit, cash - 0.5)
             if notional <= self.min_order_eur:
                 continue
+            kind = "savings_plan" if inst in self.savings_plan_instruments else "regular"
             buys.append(
                 OrderIntent(
-                    inst, "buy", notional_eur=notional, expected_edge_pct=edge, reason="acquisto verso il target"
+                    inst,
+                    "buy",
+                    notional_eur=notional,
+                    kind=kind,
+                    expected_edge_pct=edge,
+                    reason="acquisto verso il target",
                 )
             )
             cash -= notional
@@ -268,3 +279,109 @@ class Combined(TargetWeightStrategy):
             known = [e for e in (e3.get(i), e4.get(i)) if e is not None]
             edges[i] = min(known) if known else None
         return weights, edges
+
+
+# ═════════════════════════ M8: sentiment (S6) ═════════════════════════
+
+
+@dataclass
+class CryptoSentimentSleeve(TargetWeightStrategy):
+    """Core 85% sull'ETF globale (piano di accumulo) + quota bitcoin al 14% (G-08: crypto ≤ 15%).
+
+    - mode "hold": la quota crypto è sempre investita (riferimento);
+    - mode "fear_greed": contrarian sul Crypto Fear & Greed Index: si entra quando l'indice scende
+      a `low` o meno (paura), si esce quando sale a `high` o più (euforia); in mezzo si resta come si è.
+    """
+
+    core: str = "all_world"
+    crypto: str = "bitcoin_etp"
+    core_weight: float = 0.85
+    crypto_weight: float = 0.14
+    mode: str = "fear_greed"
+    low: float = 25.0
+    high: float = 75.0
+    series_name: str = "fear_greed"
+    estimator: EdgeEstimator = field(default_factory=EdgeEstimator)
+    _in: bool = field(default=False, repr=False)
+
+    def __post_init__(self) -> None:
+        self.instruments = [self.core, self.crypto]
+        self.savings_plan_instruments = (self.core,)
+
+    def targets(self, ctx: Context):
+        self.estimator.update(ctx.view)
+        if self.mode == "hold":
+            self._in = True
+        else:
+            fg = ctx.view.series(self.series_name)
+            if len(fg):
+                v = float(fg.iloc[-1])
+                if v <= self.low:
+                    self._in = True
+                elif v >= self.high:
+                    self._in = False
+        weights = {self.core: self.core_weight}
+        h_core = ctx.view.history(self.core)
+        if len(h_core):
+            self.estimator.record(self.core, "core", h_core)
+        edges = {self.core: self.estimator.edge_pct("core")}
+        if self._in:
+            h = ctx.view.history(self.crypto)
+            if len(h):
+                self.estimator.record(self.crypto, f"crypto:{self.mode}", h)
+            weights[self.crypto] = self.crypto_weight
+            edges[self.crypto] = self.estimator.edge_pct(f"crypto:{self.mode}")
+        return weights, edges
+
+
+@dataclass
+class NarrativeRiskOff(TargetWeightStrategy):
+    """ETF globale che passa alle obbligazioni quando la "narrazione di crisi" (GDELT) esplode.
+
+    z = (media a `window` giorni del volume − media dell'ultimo anno) / deviazione standard dell'ultimo anno.
+    Uscita (risk-off) se z ≥ `z_off_at`, rientro se z ≤ `z_on_at`. Con `use_sma` serve anche che l'ETF
+    sia sopra la media a 10 mesi per restare investiti. mode "hold" = sempre investiti (riferimento).
+    """
+
+    risk: str = "all_world"
+    safe: str = "global_bonds_hedged"
+    series_name: str = "crash_narrative"
+    mode: str = "narrative"
+    z_off_at: float = 2.0
+    z_on_at: float = 1.0
+    window: int = 20
+    lookback: int = 252
+    use_sma: bool = False
+    estimator: EdgeEstimator = field(default_factory=EdgeEstimator)
+    _off: bool = field(default=False, repr=False)
+
+    def __post_init__(self) -> None:
+        self.instruments = [self.risk, self.safe]
+        self.savings_plan_instruments = (self.risk,)
+
+    def narrative_z(self, ctx: Context) -> float | None:
+        s = ctx.view.series(self.series_name)
+        if len(s) < self.lookback + self.window:
+            return None
+        x = s.rolling(self.window).mean().dropna()
+        hist = x.iloc[-self.lookback :]
+        sd = float(hist.std())
+        return (float(x.iloc[-1]) - float(hist.mean())) / sd if sd > 0 else 0.0
+
+    def targets(self, ctx: Context):
+        self.estimator.update(ctx.view)
+        if self.mode != "hold":
+            z = self.narrative_z(ctx)
+            if z is not None:
+                if z >= self.z_off_at:
+                    self._off = True
+                elif z <= self.z_on_at:
+                    self._off = False
+        off = self._off
+        if self.use_sma and sig.above_sma(ctx.view.history(self.risk)) is False:
+            off = True
+        inst = self.safe if off else self.risk
+        h = ctx.view.history(inst)
+        if len(h):
+            self.estimator.record(inst, "safe" if off else "risk", h)
+        return {inst: 1.0}, {inst: self.estimator.edge_pct("safe" if off else "risk")}

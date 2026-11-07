@@ -255,14 +255,24 @@ def _chart_research(families: dict[str, list[Run]], benchmark: dict, path: Path,
     plt.close(fig)
 
 
-def write_research(path: Path, *, families: dict[str, list[Run]], benchmark: dict, context: dict) -> str:
+def write_research(
+    path: Path,
+    *,
+    families: dict[str, list[Run]],
+    benchmark: dict,
+    context: dict,
+    title: str = "M4 — Strategie su ETF: trend (S3), rotazione (S4), regime (S8)",
+    family_titles: dict[str, str] | None = None,
+    assumptions: list[str] | None = None,
+) -> str:
+    titles = {**FAMILY_TITLES, **(family_titles or {})}
     path.parent.mkdir(parents=True, exist_ok=True)
     capitals = list(benchmark)
     main_cap, diag_cap = capitals[0], capitals[1]
     png = path.with_suffix(".png")
     _chart_research(families, benchmark, png, capitals[:2])
 
-    L = ["# M4 — Strategie su ETF: trend (S3), rotazione (S4), regime (S8)", ""]
+    L = [f"# {title}", ""]
     L += [f"- **Generato il:** {date.today()} · **codice:** `{context['code_version']}`"]
     L += [f"- **Periodo:** {context['period'][0]} → {context['period'][1]} (periodo di ricerca, in-sample)"]
     L += [f"- **Hold-out:** {context['holdout']} · **dati:** `{context['data_snapshot']}`"]
@@ -282,12 +292,12 @@ def write_research(path: Path, *, families: dict[str, list[Run]], benchmark: dic
             beats = "batte" if m["excess_cagr"] > 0 else "**non batte**"
             if m["n_trades"] < MIN_TRADES:
                 L.append(
-                    f"  - {FAMILY_TITLES[fam]}: **non riesce a operare** (al massimo {m['n_trades']} ordini in "
+                    f"  - {titles[fam]}: **non riesce a operare** (al massimo {m['n_trades']} ordini in "
                     f"{m['years']:.0f} anni): i guardrails G-05/G-06 bloccano ordini troppo piccoli rispetto ai costi."
                 )
                 continue
             L.append(
-                f"  - {FAMILY_TITLES[fam]} (migliore: {best.label}): CAGR {pct(m['cagr'])}, Sharpe {num(m['sharpe'])}, "
+                f"  - {titles[fam]} (migliore: {best.label}): CAGR {pct(m['cagr'])}, Sharpe {num(m['sharpe'])}, "
                 f"drawdown {pct(m['max_drawdown'])}, {m['n_trades']} ordini — {beats} il benchmark "
                 f"({pct(m['excess_cagr'])}/anno)."
             )
@@ -310,7 +320,7 @@ def write_research(path: Path, *, families: dict[str, list[Run]], benchmark: dic
 
     # ── Tabelle per famiglia ──
     for fam, runs in families.items():
-        L += [f"## {FAMILY_TITLES[fam]}", ""]
+        L += [f"## {titles[fam]}", ""]
         L += [
             "| Variante | Capitale | Liquidato | CAGR netto | vs benchmark | Sharpe | Max DD | Ordini "
             "| Rifiuti principali | Interessi | DSR | PBO |",
@@ -332,7 +342,7 @@ def write_research(path: Path, *, families: dict[str, list[Run]], benchmark: dic
     L += ["Indicativo: il Gate 0 vero si misura **una volta sola** sull'hold-out.", ""]
     for fam, runs in families.items():
         best = _best(runs, main_cap)
-        L += [f"**{FAMILY_TITLES[fam]} — {best.label}**", "", "| Metrica | Soglia | Valore | Esito |"]
+        L += [f"**{titles[fam]} — {best.label}**", "", "| Metrica | Soglia | Valore | Esito |"]
         L += ["|---|---|---|---|"] + gate0_rows(best.metrics)[:-1]
         pbo_v = best.metrics.get("pbo")
         L.append(
@@ -347,7 +357,7 @@ def write_research(path: Path, *, families: dict[str, list[Run]], benchmark: dic
         "questa colonna dice se la **strategia in sé** ha valore, al netto del vincolo dei 50 €.",
         "",
     ]
-    L += ["## Ipotesi del modello", ""] + [f"- {a}" for a in ASSUMPTIONS_M4]
+    L += ["## Ipotesi del modello", ""] + [f"- {a}" for a in (assumptions or ASSUMPTIONS_M4)]
     L += ["", "## Registro dei tentativi (G-12)", ""]
     all_runs = [*benchmark.values(), *[r for runs in families.values() for r in runs]]
     for r in sorted(all_runs, key=lambda r: r.experiment_id or 0):

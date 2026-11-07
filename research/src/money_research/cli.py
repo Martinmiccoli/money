@@ -4,12 +4,14 @@ money db migrate               applica le migrazioni SQL
 money universe sync            carica config/universe.toml nel DB
 money ingest fx                cambi BCE (nessuna chiave)
 money ingest rates             tassi €STR ed EONIA (privo di rischio per lo Sharpe)
+money ingest sentiment         Wikipedia, GDELT, Fear & Greed, storico BTC Binance (S6, M8)
 money ingest prices            prezzi giornalieri dei proxy (Alpaca; crypto anche senza chiavi)
 money ingest all               tutto quanto sopra (incluse migrazioni e universo)
 money status                   copertura dei dati e ultime esecuzioni
 money chart [id ...]           grafico dei prezzi in EUR (base 100) in reports/charts/
 money backtest benchmark       report del benchmark (piano di accumulo) in reports/validation/
 money backtest m4              strategie ETF S3/S4/S8: griglia a priori, registro G-12, report
+money backtest m8              sentiment S6: laboratorio crypto e narrazione di crisi
 money paper run-day            giornata di paper trading: ingest → feed → settle → decide → execute
 money paper status             riepilogo dei conti paper (Gate 1)
 money notify daily|test|setup  notifiche Telegram (riepilogo, prova, ricerca della chat)
@@ -70,6 +72,15 @@ def cmd_rates(args) -> None:
     print(f"tassi BCE (€STR, EONIA): {total} righe")
 
 
+def cmd_sentiment(args) -> None:
+    from .ingest import sentiment
+
+    with _conn() as c, db.ingest_run(c, "sentiment") as run:
+        n = sentiment.ingest_all(c, date.today())
+        run["rows"] = sum(n.values())
+    print("sentiment: " + ", ".join(f"{k} {v}" for k, v in n.items()))
+
+
 def cmd_prices(args) -> None:
     s = load_settings()
     inst = load_universe()
@@ -94,6 +105,7 @@ def cmd_all(args) -> None:
     cmd_universe(args)
     cmd_fx(args)
     cmd_rates(args)
+    cmd_sentiment(args)
     cmd_prices(args)
 
 
@@ -267,6 +279,15 @@ def cmd_notify(args) -> None:
     print("notifica inviata" if sent else "notifica saltata: TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID mancanti")
 
 
+def cmd_backtest_m8(args) -> None:
+    from .backtest.run import m8_report
+
+    with _conn() as c:
+        path, sha = m8_report(c)
+    print(f"report: {path}")
+    print(f"sha256: {sha}")
+
+
 def main(argv: list[str] | None = None) -> None:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     p = argparse.ArgumentParser(prog="money", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -277,7 +298,13 @@ def main(argv: list[str] | None = None) -> None:
         fn=cmd_universe
     )
     ing = sub.add_parser("ingest").add_subparsers(dest="sub", required=True)
-    for name, fn in [("fx", cmd_fx), ("rates", cmd_rates), ("prices", cmd_prices), ("all", cmd_all)]:
+    for name, fn in [
+        ("fx", cmd_fx),
+        ("rates", cmd_rates),
+        ("sentiment", cmd_sentiment),
+        ("prices", cmd_prices),
+        ("all", cmd_all),
+    ]:
         sp = ing.add_parser(name)
         sp.add_argument("--start", type=date.fromisoformat, help="AAAA-MM-GG (default: incrementale)")
         sp.add_argument("--end", type=date.fromisoformat)
@@ -289,6 +316,7 @@ def main(argv: list[str] | None = None) -> None:
     bt = sub.add_parser("backtest").add_subparsers(dest="sub", required=True)
     bt.add_parser("benchmark").set_defaults(fn=cmd_backtest_benchmark)
     bt.add_parser("m4").set_defaults(fn=cmd_backtest_m4)
+    bt.add_parser("m8").set_defaults(fn=cmd_backtest_m8)
     pp = sub.add_parser("paper").add_subparsers(dest="sub", required=True)
     rd = pp.add_parser("run-day")
     rd.add_argument("--now", help="istante della decisione (ISO con fuso), per recuperi e test")
