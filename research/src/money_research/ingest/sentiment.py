@@ -91,8 +91,9 @@ def fetch_gdelt(
     start: date,
     end: date,
     client: httpx.Client | None = None,
-    pause: float = 6.0,
+    pause: float = 10.0,
     retries: int = 6,
+    on_chunk=None,
 ) -> list[tuple]:
     """Volume giornaliero (% degli articoli monitorati) a blocchi di ~3 mesi, rispettando il limite
     di GDELT (una richiesta ogni 5 secondi): pausa tra le richieste e attesa crescente se rifiutati."""
@@ -118,10 +119,14 @@ def fetch_gdelt(
         else:
             raise RuntimeError(f"GDELT non risponde per {a}…{b}: {r.text[:200]}")
         tl = r.json().get("timeline") or []
+        chunk = []
         for p in tl[0]["data"] if tl else []:
             d = datetime.strptime(p["date"][:8], "%Y%m%d").date()
             if a <= d <= b:
-                out.append(("gdelt", series_id, d, float(p["value"]), _at(d, 1, 1)))
+                chunk.append(("gdelt", series_id, d, float(p["value"]), _at(d, 1, 1)))
+        out += chunk
+        if on_chunk and chunk:
+            on_chunk(chunk)  # salva subito: se GDELT si blocca, il prossimo giro riprende da qui
         a = b + timedelta(days=1)
         _time.sleep(pause)
     return out
@@ -208,25 +213,45 @@ def last_date(conn: psycopg.Connection, source: str, series_id: str) -> date | N
     ).fetchone()[0]
 
 
-def ingest_all(conn: psycopg.Connection, today: date) -> dict[str, int]:
-    """Aggiornamento incrementale di tutte le serie (la prima volta scarica lo storico: ~5 minuti)."""
-    n: dict[str, int] = {}
+def ingest_all(conn: psycopg.Connection, today: date) -> dict[str, int | str]:
+    """Aggiornamento incrementale. Ogni fonte è indipendente: un errore su una non blocca le altre."""
+    n: dict[str, int | str] = {}
+
+    def guarded(name: str, fn) -> None:
+        try:
+            n[name] = fn()
+        except Exception as e:  # noqa: BLE001 - si registra e si prosegue con le altre fonti
+            log.warning("%s: %s", name, e)
+            n[name] = f"errore ({type(e).__name__})"
+
     for art in WIKI_ARTICLES:
         if wikimedia_headers() is None:
             log.warning("Wikipedia saltata: imposta WIKIMEDIA_CONTACT in .env (policy Wikimedia)")
-            n[f"wikipedia:{art}"] = 0
+            n[f"wikipedia:{art}"] = "saltata"
             continue
         last = last_date(conn, "wikipedia", art)
         start = (last - timedelta(days=7)) if last else date(2016, 1, 1)
-        n[f"wikipedia:{art}"] = store_series(conn, fetch_wikipedia(art, start, today - timedelta(days=1)))
-    n["fear_greed"] = store_series(conn, fetch_fear_greed())
+        guarded(
+            f"wikipedia:{art}",
+            lambda a=art, st=start: store_series(conn, fetch_wikipedia(a, st, today - timedelta(days=1))),
+        )
+    guarded("fear_greed", lambda: store_series(conn, fetch_fear_greed()))
+
+    def btc() -> int:
+        last_btc = conn.execute(
+            "SELECT max(date) FROM market.bar_1d WHERE instrument_id='bitcoin_etp' AND source='binance'"
+        ).fetchone()[0]
+        start = (last_btc + timedelta(days=1)) if last_btc else date(2017, 8, 17)
+        return store_binance(conn, "bitcoin_etp", fetch_binance_daily("BTCUSDT", start))
+
+    guarded("binance:BTCUSDT", btc)
     for sid, q in GDELT_QUERIES.items():
         last = last_date(conn, "gdelt", sid)
         start = (last - timedelta(days=3)) if last else GDELT_START
-        n[f"gdelt:{sid}"] = store_series(conn, fetch_gdelt(sid, q, start, today - timedelta(days=1)))
-    last_btc = conn.execute(
-        "SELECT max(date) FROM market.bar_1d WHERE instrument_id='bitcoin_etp' AND source='binance'"
-    ).fetchone()[0]
-    start = (last_btc + timedelta(days=1)) if last_btc else date(2017, 8, 17)
-    n["binance:BTCUSDT"] = store_binance(conn, "bitcoin_etp", fetch_binance_daily("BTCUSDT", start))
+        guarded(
+            f"gdelt:{sid}",
+            lambda s_=sid, q_=q, st=start: len(
+                fetch_gdelt(s_, q_, st, today - timedelta(days=1), on_chunk=lambda rows: store_series(conn, rows))
+            ),
+        )
     return n
