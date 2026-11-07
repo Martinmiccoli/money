@@ -136,3 +136,34 @@ def test_rotazione_va_sul_rifugio_in_regime_negativo():
     rot = SectorRotation(sectors=["s0", "s1", "s2"], safe_instrument="safe")
     w, _ = rot.targets(ctx(FakeView(data)))
     assert w == {"safe": 1.0}
+
+
+def test_gli_acquisti_rispettano_la_riserva_di_liquidita():
+    # 1% di 1000 € = 10 € di riserva: l'acquisto si ferma a 990 €, non a 999,50 €.
+    view = FakeView({"a": series([100.0])})
+    s = Fixed({"a": 1.0}, {"a": 2.0}, cash_buffer=0.01)
+    orders = s.decide(ctx(view, cash=1000.0))
+    assert orders[0].notional_eur == pytest.approx(990.0)
+
+
+def test_piano_di_accumulo_ammette_ordini_da_10_euro():
+    view = FakeView({"a": series([100.0])})
+    s = Fixed({"a": 1.0}, {"a": 2.0}, cash_buffer=0.01, savings_plan_instruments=("a",))
+    orders = s.decide(ctx(view, cash=50.0))
+    assert [(o.instrument, o.kind) for o in orders] == [("a", "savings_plan")]
+    assert orders[0].notional_eur == pytest.approx(49.5)
+
+
+def test_stato_salvato_con_una_versione_precedente_si_carica():
+    import pickle
+
+    from money_research.backtest.strategies import TrendFollowing
+
+    old = TrendFollowing(universe=["a"])
+    state = dict(old.__dict__)
+    for k in ("band_pct", "savings_plan_instruments", "min_savings_plan_eur"):
+        state.pop(k)
+    blob = pickle.dumps(old)
+    restored = pickle.loads(blob)
+    restored.__setstate__(state)
+    assert restored.band_pct == 0.0 and restored.savings_plan_instruments == () and restored.min_savings_plan_eur == 10

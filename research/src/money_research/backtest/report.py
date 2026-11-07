@@ -291,9 +291,18 @@ def write_research(
             m = best.metrics
             beats = "batte" if m["excess_cagr"] > 0 else "**non batte**"
             if m["n_trades"] < MIN_TRADES:
+                codes = Counter(c for x in best.result.rejections for c in x["codes"])
+                blocked = codes["G-05"] + codes["G-06"]
+                why = (
+                    "i guardrails G-05/G-06 bloccano ordini troppo piccoli rispetto ai costi"
+                    if blocked > m["n_trades"]
+                    else "la strategia opera raramente per costruzione"
+                )
                 L.append(
-                    f"  - {titles[fam]}: **non riesce a operare** (al massimo {m['n_trades']} ordini in "
-                    f"{m['years']:.0f} anni): i guardrails G-05/G-06 bloccano ordini troppo piccoli rispetto ai costi."
+                    f"  - {titles[fam]}: **troppo pochi ordini per una statistica affidabile** (al massimo "
+                    f"{m['n_trades']} in {m['years']:.0f} anni, ne servono {MIN_TRADES}): {why}. "
+                    f"Variante più attiva: {best.label}, CAGR {pct(m['cagr'])} contro {pct(m['benchmark_cagr'])} del "
+                    "benchmark."
                 )
                 continue
             L.append(

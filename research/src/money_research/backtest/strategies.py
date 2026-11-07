@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -101,6 +102,7 @@ class TargetWeightStrategy:
     rebalance: str = "monthly"  # "monthly" | "weekly" | "daily"
     band_pct: float = 0.0  # banda relativa: si opera solo se |Δ| > band_pct × equity (oltre ai 50 €)
     savings_plan_instruments: tuple[str, ...] = ()  # acquisti con piano di accumulo (0 € di commissione)
+    min_savings_plan_eur: float = 10.0  # minimo per esecuzione del piano di accumulo su Trade Republic
     min_order_eur: float = 50.0
     max_orders_per_day: int = 3
     pending_days: int = 5
@@ -114,6 +116,17 @@ class TargetWeightStrategy:
 
     def targets(self, ctx: Context) -> tuple[dict[str, float], dict[str, float | None]]:
         raise NotImplementedError
+
+    def __setstate__(self, state: dict) -> None:
+        """Stati salvati dal paper trading con una versione precedente: i campi aggiunti dopo
+        prendono il loro valore predefinito invece di far fallire la decisione del giorno."""
+        for f in dataclasses.fields(self):
+            if f.name not in state:
+                if f.default is not dataclasses.MISSING:
+                    state[f.name] = f.default
+                elif f.default_factory is not dataclasses.MISSING:
+                    state[f.name] = f.default_factory()
+        self.__dict__.update(state)
 
     def _period_of(self, day) -> tuple:
         if self.rebalance == "daily":
@@ -154,17 +167,22 @@ class TargetWeightStrategy:
         deficits = sorted(
             ((t * equity - values.get(i, 0.0), i) for i, t in self._targets.items() if t > 0), reverse=True
         )
+        # La liquidità di riserva (bollo, imposte) si rispetta anche quando si reinveste: con la cassa
+        # sotto zero il guardrail rifiuta ogni ordine, vendite comprese (snapshot non valido).
+        reserve = max(0.5, self.cash_buffer * equity)
         for deficit, inst in deficits:
-            if deficit <= band:
+            sp = inst in self.savings_plan_instruments
+            min_order = self.min_savings_plan_eur if sp else self.min_order_eur
+            if deficit <= max(min_order, self.band_pct * equity):
                 continue
             edge = self._edges.get(inst)
             if edge is None or edge <= 0:
                 self.stats["no_edge"] += 1
                 continue
-            notional = min(deficit, cash - 0.5)
-            if notional <= self.min_order_eur:
+            notional = min(deficit, cash - reserve)
+            if notional <= min_order:
                 continue
-            kind = "savings_plan" if inst in self.savings_plan_instruments else "regular"
+            kind = "savings_plan" if sp else "regular"
             buys.append(
                 OrderIntent(
                     inst,
