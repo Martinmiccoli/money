@@ -77,7 +77,9 @@ def cmd_sentiment(args) -> None:
 
     with _conn() as c, db.ingest_run(c, "sentiment") as run:
         n = sentiment.ingest_all(c, date.today())
-        run["rows"] = sum(n.values())
+        run["rows"] = sum(v for v in n.values() if isinstance(v, int))
+        if any(isinstance(v, str) and v.startswith("errore") for v in n.values()):
+            run["status"], run["detail"] = "partial", "; ".join(f"{k}: {v}" for k, v in n.items())
     print("sentiment: " + ", ".join(f"{k} {v}" for k, v in n.items()))
 
 
