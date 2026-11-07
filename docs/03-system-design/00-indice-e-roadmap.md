@@ -21,7 +21,7 @@ Ogni milestone finisce con test verdi e una demo funzionante.
 | **M5** | Insider | ingest Form 4 + S1 + filtri | Gate 0 su S1 |
 | **M6** ✅ (avviato il 2026-11-07) | Paper trading | `money-engine` + SimBroker + AlpacaPaper, scheduler, heartbeat | **inizio del Gate 1** (3-6 mesi) |
 | **M7** ✅ | Webapp e notifiche | API Hono, PWA, bot Telegram, flusso proposte | proposte sul telefono |
-| **M8** | Sentiment | GDELT, Wikipedia, FinBERT, S6 (veto e feature), laboratorio crypto | Gate 0 sui filtri |
+| **M8** ✅ (esito negativo) | Sentiment | GDELT, Wikipedia, FinBERT, S6 (veto e feature), laboratorio crypto | Gate 0 sui filtri |
 | **M9** | Deploy | VM Oracle, Cloudflare Tunnel, backup, watchdog | sistema acceso 24/7 |
 | **M10** | Agente fiscale | `knowledge/fisco/`, report annuale, riconciliazione dell'export Trade Republic | primo report fiscale |
 | M11 | Estensioni | S2 13F, S5 v2, S7 Congresso, combiner ML | da valutare con i dati |
@@ -39,3 +39,11 @@ Report: [`reports/validation/2026-11-07-m4-strategie-etf.md`](../../reports/vali
 - **Webapp** (Hono + React, PWA, solo `127.0.0.1`): conti, andamento, posizioni, ordini con l'ombra Alpaca, ledger leggibile, guardrails e pulsante di ripartenza dopo il soft stop (`money-engine resume`).
 - **Telegram:** riepilogo dopo ogni giornata, avviso immediato se la giornata fallisce, **anteprima** delle proposte hybrid nel formato del 3.5 (prezzo massimo, scadenza, motivo, rendimento atteso).
 - **Non ancora:** il flusso di conferma reale (✅ Eseguito / ⏭ Salta con registrazione del fill) serve solo in modalità hybrid, che richiede la validazione (G-15). Verrà implementato insieme all'adapter `ManualTap`. Lo stesso vale per Web Push: Telegram basta.
+
+## Esito della M8 (2026-11-07) — sentiment: risultato negativo, registrato (G-12)
+Report: [`reports/validation/2026-11-07-m8-sentiment.md`](../../reports/validation/2026-11-07-m8-sentiment.md). Periodo di ricerca da marzo 2018 ad agosto 2024; hold-out intatto.
+- **Fear & Greed contrarian sulla quota bitcoin:** a 1.000 € e 10.000 € **rende meno che tenere sempre il bitcoin** (6,7-9,6% contro 10,5-11,6% annuo). Il segnale non aggiunge valore.
+- **Narrazione di crisi (GDELT):** **fortemente negativa** (da −1,9% a 0% annuo contro +7,7% dell'ETF tenuto). Il volume di notizie su recessione e crolli tocca il massimo *vicino ai minimi* (marzo 2020): la strategia esce al momento peggiore e perde il rimbalzo.
+- **Nota sul bitcoin "sempre":** 85% ETF + 14% BTC ha reso circa 2-3 punti l'anno più del solo ETF, ma con meno di 30 operazioni e DSR sotto il 95%. Soprattutto, **scegliere il bitcoin oggi, sapendo come è andato dal 2018 al 2024, è senno di poi**: non è una prova di valore futuro.
+- **Rimandati a S1 (M5):** FinBERT sul tono delle notizie e veto anti-hype sulle azioni. Wikipedia richiede un contatto per la policy Wikimedia (`WIKIMEDIA_CONTACT`).
+- **Bug trovati e corretti durante la M8:** riserva di liquidità negli acquisti (influiva anche sulla M4: S3 a 10.000 € passa da 2,8% a 4,8%, sempre sotto il benchmark), minimo del piano di accumulo, compatibilità degli stati salvati dal paper.

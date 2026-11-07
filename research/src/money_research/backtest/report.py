@@ -293,11 +293,12 @@ def write_research(
             if m["n_trades"] < MIN_TRADES:
                 codes = Counter(c for x in best.result.rejections for c in x["codes"])
                 blocked = codes["G-05"] + codes["G-06"]
-                why = (
-                    "i guardrails G-05/G-06 bloccano ordini troppo piccoli rispetto ai costi"
-                    if blocked > m["n_trades"]
-                    else "la strategia opera raramente per costruzione"
-                )
+                if m["n_trades"] == 0:
+                    why = "con questo capitale nessun ordine raggiunge il minimo di 50 € (commissione 1 €, G-05)"
+                elif blocked > m["n_trades"]:
+                    why = "i guardrails G-05/G-06 bloccano ordini troppo piccoli rispetto ai costi"
+                else:
+                    why = "la strategia opera raramente per costruzione"
                 L.append(
                     f"  - {titles[fam]}: **troppo pochi ordini per una statistica affidabile** (al massimo "
                     f"{m['n_trades']} in {m['years']:.0f} anni, ne servono {MIN_TRADES}): {why}. "
