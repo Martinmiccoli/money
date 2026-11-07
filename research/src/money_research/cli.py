@@ -12,6 +12,8 @@ money backtest benchmark       report del benchmark (piano di accumulo) in repor
 money backtest m4              strategie ETF S3/S4/S8: griglia a priori, registro G-12, report
 money paper run-day            giornata di paper trading: ingest → feed → settle → decide → execute
 money paper status             riepilogo dei conti paper (Gate 1)
+money notify daily|test|setup  notifiche Telegram (riepilogo, prova, ricerca della chat)
+money notify failure MESSAGGIO avviso di guasto (usato da infra/paper/run-day.sh)
 """
 
 from __future__ import annotations
@@ -234,6 +236,37 @@ def cmd_paper_status(args) -> None:
         )
 
 
+def cmd_notify(args) -> None:
+    import os
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    from . import notify
+
+    load_settings()  # carica .env
+    if args.sub == "setup":
+        token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+        if not token:
+            sys.exit("TELEGRAM_BOT_TOKEN mancante in .env (crealo con @BotFather)")
+        chats = notify.discover_chat_ids(token)
+        if not chats:
+            sys.exit("nessuna chat trovata: scrivi /start al tuo bot su Telegram e riprova")
+        for cid, name in chats:
+            print(f"TELEGRAM_CHAT_ID={cid}   # {name}")
+        return
+    if args.sub == "test":
+        text = "✅ Money: le notifiche funzionano."
+    elif args.sub == "failure":
+        text = f"🚨 <b>Money: giornata di paper trading fallita</b>\n{args.message[:3500]}"
+    else:
+        with _conn() as c:
+            text = notify.daily_summary(c, datetime.now(ZoneInfo("Europe/Rome")))
+    if args.print:
+        print(text)
+    sent = notify.send(text)
+    print("notifica inviata" if sent else "notifica saltata: TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID mancanti")
+
+
 def main(argv: list[str] | None = None) -> None:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     p = argparse.ArgumentParser(prog="money", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -262,6 +295,15 @@ def main(argv: list[str] | None = None) -> None:
     rd.add_argument("--skip-ingest", action="store_true", help="non riscaricare i dati")
     rd.set_defaults(fn=cmd_paper_run_day, start=None, end=None)
     pp.add_parser("status").set_defaults(fn=cmd_paper_status)
+    nt = sub.add_parser("notify").add_subparsers(dest="sub", required=True)
+    for name in ("daily", "test", "setup"):
+        sp = nt.add_parser(name)
+        sp.add_argument("--print", action="store_true", help="mostra anche il testo")
+        sp.set_defaults(fn=cmd_notify)
+    fl = nt.add_parser("failure")
+    fl.add_argument("message")
+    fl.add_argument("--print", action="store_true")
+    fl.set_defaults(fn=cmd_notify)
 
     args = p.parse_args(argv)
     try:

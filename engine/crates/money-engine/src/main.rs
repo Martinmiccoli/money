@@ -4,6 +4,7 @@
 //! money-engine settle    esegue gli ordini in attesa (SimBroker), interessi, bollo, versamenti
 //! money-engine execute   guardrails sulle intenzioni → ordini; valutazione e rischio; Alpaca ombra
 //! money-engine status    riepilogo dei conti
+//! money-engine resume --account <id>   ripartenza manuale dopo un soft stop (G-01)
 //! ```
 
 use std::path::{Path, PathBuf};
@@ -34,6 +35,11 @@ enum Cmd {
     Settle,
     Execute,
     Status,
+    /// Ripartenza manuale dopo un soft stop (G-01). Dal blocco (G-02) non si riparte.
+    Resume {
+        #[arg(long)]
+        account: String,
+    },
 }
 
 fn repo_root() -> Result<PathBuf> {
@@ -91,16 +97,16 @@ fn run() -> Result<()> {
     let now = cli.now.unwrap_or_else(Utc::now);
     let root = repo_root()?;
     let mut s = setup(&root)?;
-    let component = match cli.cmd {
-        Cmd::Settle => "engine:settle",
-        Cmd::Execute => "engine:execute",
+    let (component, result) = match cli.cmd {
+        Cmd::Settle => ("engine:settle", settle(&mut s, now)),
+        Cmd::Execute => ("engine:execute", execute(&mut s, now)),
+        Cmd::Resume { account } => ("engine:resume", resume(&mut s, now, &account)),
         Cmd::Status => return status(&mut s),
     };
-    let result = match cli.cmd {
-        Cmd::Settle => settle(&mut s, now),
-        Cmd::Execute => execute(&mut s, now),
-        Cmd::Status => unreachable!(),
-    };
+    // L'heartbeat misura la salute dei giri automatici: una ripartenza rifiutata non è un guasto.
+    if component == "engine:resume" {
+        return result.map(|m| println!("{m}"));
+    }
     match &result {
         Ok(summary) => {
             println!("{summary}");
@@ -285,6 +291,35 @@ fn poll_shadows(s: &mut Setup) -> Result<String> {
         }
     }
     Ok(format!("Alpaca ombra: {done} ordini eseguiti aggiornati"))
+}
+
+fn resume(s: &mut Setup, now: DateTime<Utc>, account: &str) -> Result<String> {
+    let instruments = store::instruments(&mut s.db)?;
+    let feed = store::feed(&mut s.db)?;
+    let ctx = Ctx {
+        broker: &s.broker,
+        rules: &s.rules,
+        guard: &s.guard,
+        instruments: &instruments,
+        feed: &feed,
+        rates: &[],
+        now,
+    };
+    let mut ledger = store::ledger(&mut s.db, account)?;
+    let before = ledger.records().len();
+    let hist = store::equity_history(&mut s.db, account)?;
+    let last = hist
+        .last()
+        .ok_or_else(|| anyhow::anyhow!("nessuna valutazione per {account}"))?;
+    let row = plan::resume(&mut ledger, &ctx, last)?;
+    let mut tx = s.db.transaction()?;
+    store::append_records(&mut tx, &ledger, before)?;
+    store::save_equity(&mut tx, account, &row)?;
+    tx.commit()?;
+    Ok(format!(
+        "{account}: ripartito, nuovo massimo di riferimento {} €",
+        row.nav.round_dp(2)
+    ))
 }
 
 fn status(s: &mut Setup) -> Result<()> {

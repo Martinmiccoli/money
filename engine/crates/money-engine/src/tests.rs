@@ -314,3 +314,34 @@ fn interessi_del_mese_precedente_con_ritenuta() {
     .unwrap();
     assert_eq!(led.records().len(), 3);
 }
+
+#[test]
+fn ripartenza_solo_da_sospeso() {
+    let w = World::new();
+    let f = feed(d(2026, 11, 2), &[(dec!(100), dec!(100))]);
+    let mut led = Ledger::new("paper-test");
+    let now = rome(d(2026, 11, 3), 9);
+    plan::settle(&mut led, &w.ctx(&f, now), &acct(), &[], &[]).unwrap();
+    let row = EquityRow {
+        date: d(2026, 11, 2),
+        nav: dec!(800),
+        cash: dec!(800),
+        invested: dec!(0),
+        net_deposits: dec!(1000),
+        hwm: 1000.0,
+        risk_state: "Suspended".into(),
+    };
+    let after = plan::resume(&mut led, &w.ctx(&f, now), &row).unwrap();
+    assert_eq!((after.risk_state.as_str(), after.hwm), ("Active", 800.0));
+    assert!(matches!(
+        led.records().last().unwrap().event,
+        Event::RiskStateChanged { .. }
+    ));
+    // da attivo o bloccato non si riparte
+    assert!(plan::resume(&mut led, &w.ctx(&f, now), &after).is_err());
+    let locked = EquityRow {
+        risk_state: "Locked".into(),
+        ..row
+    };
+    assert!(plan::resume(&mut led, &w.ctx(&f, now), &locked).is_err());
+}

@@ -31,5 +31,6 @@ Quando l'utente chiede di fisco:
 - Dati: `cd research && uv run money ingest all` · `uv run money status` · `uv run money chart`
 - Backtest: `uv run money backtest benchmark` · `uv run money backtest m4` (ogni esecuzione finisce nel registro G-12)
 - Paper trading (M6): `uv run money paper run-day` · `uv run money paper status` · motore: `engine/target/release/money-engine settle|execute|status` · automatico: `infra/paper/run-day.sh` (launchd)
-- TypeScript (`web/`): Node
+- TypeScript (`web/`): Node. `cd web && npm test && npm run typecheck && npm run build && npm start` (http://127.0.0.1:8787)
+- Notifiche: `uv run money notify daily|test|setup` (Telegram, credenziali in `.env`)
 - Branch di lavoro: `dev`. Commit in italiano.

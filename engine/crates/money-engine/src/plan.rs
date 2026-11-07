@@ -702,3 +702,31 @@ pub fn valuate(
         event,
     ))
 }
+
+/// Ripartenza manuale dopo un soft stop (G-01): l'utente prende atto della perdita e il massimo
+/// storico riparte dal valore attuale. Dal blocco definitivo (G-02) non si riparte.
+pub fn resume(ledger: &mut Ledger, ctx: &Ctx, last: &EquityRow) -> Result<EquityRow> {
+    let mut rm = RiskMachine::restore(risk_state(&last.risk_state), last.hwm);
+    let ev = rm.resume(to_f64(last.nav)).map_err(|e| {
+        anyhow!(
+            "ripartenza non possibile: {e:?} (stato: {})",
+            last.risk_state
+        )
+    })?;
+    push(
+        ledger,
+        ctx,
+        ctx.today(),
+        Event::RiskStateChanged {
+            from: last.risk_state.clone(),
+            to: format!("{:?}", rm.state()),
+            equity_eur: last.nav.round_dp(2),
+            detail: format!("ripartenza manuale: {ev:?}"),
+        },
+    )?;
+    Ok(EquityRow {
+        hwm: rm.high_water_mark_eur(),
+        risk_state: format!("{:?}", rm.state()),
+        ..last.clone()
+    })
+}
