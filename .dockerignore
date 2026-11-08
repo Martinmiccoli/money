@@ -1,0 +1,12 @@
+.git
+.env
+.env.*
+!.env.example
+.cache
+data
+**/target
+**/node_modules
+**/.venv
+**/__pycache__
+web/dist
+reports/charts

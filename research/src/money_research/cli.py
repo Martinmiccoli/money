@@ -5,6 +5,7 @@ money universe sync            carica config/universe.toml nel DB
 money ingest fx                cambi BCE (nessuna chiave)
 money ingest rates             tassi €STR ed EONIA (privo di rischio per lo Sharpe)
 money ingest sentiment         Wikipedia, GDELT, Fear & Greed, storico BTC Binance (S6, M8)
+money ingest insider           Form 4 dalla SEC (dataset trimestrali, dal 2013) (S1, M5)
 money ingest prices            prezzi giornalieri dei proxy (Alpaca; crypto anche senza chiavi)
 money ingest all               tutto quanto sopra (incluse migrazioni e universo)
 money status                   copertura dei dati e ultime esecuzioni
@@ -81,6 +82,20 @@ def cmd_sentiment(args) -> None:
         if any(isinstance(v, str) and v.startswith("errore") for v in n.values()):
             run["status"], run["detail"] = "partial", "; ".join(f"{k}: {v}" for k, v in n.items())
     print("sentiment: " + ", ".join(f"{k} {v}" for k, v in n.items()))
+
+
+def cmd_insider(args) -> None:
+    from .ingest import insider
+
+    load_settings()
+    start = args.start or date(2013, 1, 1)
+    with _conn() as c, db.ingest_run(c, "insider_sec") as run:
+        last = c.execute("SELECT max(filing_date) FROM raw.form4").fetchone()[0]
+        if args.start is None and last:
+            start = last - timedelta(days=95)  # ultimo trimestre completo + quello in corso
+        n = insider.ingest(c, start, args.end or date.today())
+        run["rows"] = sum(n.values())
+    print("Form 4: " + ", ".join(f"{q} {k}" for q, k in n.items()))
 
 
 def cmd_prices(args) -> None:
@@ -304,6 +319,7 @@ def main(argv: list[str] | None = None) -> None:
         ("fx", cmd_fx),
         ("rates", cmd_rates),
         ("sentiment", cmd_sentiment),
+        ("insider", cmd_insider),
         ("prices", cmd_prices),
         ("all", cmd_all),
     ]:

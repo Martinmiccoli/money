@@ -24,6 +24,8 @@ app.use("/*", serveStatic({ root: "./dist" }));
 app.get("*", serveStatic({ path: "./dist/index.html" }));
 
 const port = Number(process.env.WEB_PORT ?? 8787);
-serve({ fetch: app.fetch, port, hostname: "127.0.0.1" }, () =>
-  console.log(`money web: http://127.0.0.1:${port}`),
+// In locale solo 127.0.0.1. Nel container (M9) 0.0.0.0, ma la porta è pubblicata solo su 127.0.0.1 dell'host.
+const hostname = process.env.HOSTNAME_BIND ?? "127.0.0.1";
+serve({ fetch: app.fetch, port, hostname }, () =>
+  console.log(`money web: http://${hostname}:${port}`),
 );
